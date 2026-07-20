@@ -1,3 +1,7 @@
+<p align="right">
+  <strong>简体中文</strong> | <a href="./README.en.md">English</a>
+</p>
+
 # 嘉立创 EDA 个人元器件库存
 
 面向嘉立创 EDA 专业版 V3 的个人库存扩展。它用于记录手头元器件、从嘉立创器件库补全 C 编号等信息，并在原理图设计时优先使用已有库存。
