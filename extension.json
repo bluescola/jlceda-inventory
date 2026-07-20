@@ -1,0 +1,130 @@
+{
+	"name": "jlceda-inventory",
+	"uuid": "22a2cf3515804a9fa91e230c4a58d896",
+	"displayName": "Component Inventory",
+	"description": "Manage personal component stock and prefer parts already on hand.",
+	"version": "0.1.0",
+	"publisher": "bluescola",
+	"engines": {
+		"eda": "^3.0.0"
+	},
+	"license": "Apache-2.0",
+	"repository": {
+		"type": "github",
+		"url": "https://github.com/bluescola/jlceda-inventory.git"
+	},
+	"categories": [
+		"Library",
+		"Other"
+	],
+	"keywords": [
+		"Inventory",
+		"Component",
+		"LCSC",
+		"Library"
+	],
+	"images": {
+		"logo": "./images/logo.png"
+	},
+	"homepage": "https://github.com/bluescola/jlceda-inventory",
+	"bugs": "https://github.com/bluescola/jlceda-inventory/issues",
+	"activationEvents": {},
+	"entry": "./dist/index",
+	"dependentExtensions": {},
+	"headerMenus": {
+		"home": [
+			{
+				"id": "componentInventory",
+				"title": "Component Inventory",
+				"menuItems": [
+					{
+						"id": "inventoryOverview",
+						"title": "Inventory overview",
+						"registerFn": "openInventory"
+					},
+					{
+						"id": "addByLcsc",
+						"title": "Add by LCSC part number",
+						"registerFn": "addByLcscPartNumber"
+					},
+					{
+						"id": "addManual",
+						"title": "Add custom component",
+						"registerFn": "addCustomComponent"
+					},
+					{
+						"id": "importOrder",
+						"title": "Import order file",
+						"registerFn": "importOrderFile"
+					},
+					{
+						"id": "recommend",
+						"title": "Inventory-first recommendations",
+						"registerFn": "showRecommendations"
+					},
+					{
+						"id": "exportBackup",
+						"title": "Export inventory backup",
+						"registerFn": "exportInventoryBackup"
+					},
+					{
+						"id": "about",
+						"title": "About inventory extension",
+						"registerFn": "about"
+					}
+				]
+			}
+		],
+		"sch": [
+			{
+				"id": "componentInventory",
+				"title": "Component Inventory",
+				"menuItems": [
+					{
+						"id": "inventoryOverview",
+						"title": "Inventory overview",
+						"registerFn": "openInventory"
+					},
+					{
+						"id": "placeFromInventory",
+						"title": "Place from inventory",
+						"registerFn": "placeFromInventory"
+					},
+					{
+						"id": "addByLcsc",
+						"title": "Add by LCSC part number",
+						"registerFn": "addByLcscPartNumber"
+					},
+					{
+						"id": "recommend",
+						"title": "Inventory-first recommendations",
+						"registerFn": "showRecommendations"
+					}
+				]
+			}
+		],
+		"pcb": [
+			{
+				"id": "componentInventory",
+				"title": "Component Inventory",
+				"menuItems": [
+					{
+						"id": "inventoryOverview",
+						"title": "Inventory overview",
+						"registerFn": "openInventory"
+					},
+					{
+						"id": "addByLcsc",
+						"title": "Add by LCSC part number",
+						"registerFn": "addByLcscPartNumber"
+					},
+					{
+						"id": "recommend",
+						"title": "Inventory-first recommendations",
+						"registerFn": "showRecommendations"
+					}
+				]
+			}
+		]
+	}
+}

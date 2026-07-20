@@ -1,0 +1,12 @@
+{
+	"Component Inventory": "元器件库存",
+	"Manage personal component stock and prefer parts already on hand.": "管理个人元器件库存，并优先使用已有库存。",
+	"Inventory overview": "库存总览",
+	"Add by LCSC part number": "按立创 C 编号添加",
+	"Add custom component": "添加自定义元器件",
+	"Import order file": "导入订单文件",
+	"Inventory-first recommendations": "库存优先推荐",
+	"Export inventory backup": "导出库存备份",
+	"Place from inventory": "从库存放置元器件",
+	"About inventory extension": "关于库存扩展"
+}
