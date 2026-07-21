@@ -1,8 +1,45 @@
-# Order import format
+# 订单导入格式
 
-The extension accepts UTF-8 CSV and JSON. There is no public JLC order API in the current Professional V3 extension API, so users export or prepare a file before importing.
+扩展支持立创商城订单详情 `.xls`、`.xlsx`，也兼容 UTF-8 编码的 CSV 和 JSON。当前嘉立创 EDA 专业版 V3 扩展 API 没有公开的商城订单接口，因此需要先从立创商城导出订单详情，或自行准备 CSV/JSON，再执行导入。
 
-## CSV example
+## 立创商城 Excel
+
+推荐直接选择立创商城导出的“订单详情”文件。解析器会在每个工作表的前部动态查找表头，不要求表头位于第一行；订单抬头、收件信息等元数据不会作为库存读取或写入日志。
+
+官方订单详情中以下列会自动映射：
+
+| 订单列 | 库存字段 |
+| --- | --- |
+| 商品编号 | C 编号、供应商编号 |
+| 品牌 | 制造商 |
+| 厂家型号 | 厂家型号 |
+| 封装 | 封装 |
+| 商品名称 | 名称 |
+| 订购数量（修改后） | 数量 |
+
+数量可以是 `100`、`100个` 或带千分位的整数；小数、负数以及无法识别的后缀会拒绝导入。标记为“不发此货”的行会跳过。
+
+一个导出文件可能同时包含订单页、隐藏的重复表头页和空工作表。扩展只采用有效物料最多的单个工作表，不会把重复模板拼接后再次累加；所有候选工作表均无物料时，导入结果为空。
+
+## 批量预览与防重复
+
+文件选择器一次最多接受 100 个订单文件。所有文件解析成功后，扩展先显示逐文件预览，包括文件名、订单号、可导入行数、数量合计、重复原因，以及按当前重复元器件策略预计新增、合并和跳过的行数；用户确认前不会写入库存。任一文件解析失败时整批停止，不会只导入其中一部分。
+
+默认库存状态和重复元器件策略在同一个多字段导入窗口中一次设置，不再先后打开两个原生选择框。该窗口同时承载逐文件预览以及“解析文件”“匹配 EDA 模型”“写入库存”等阶段进度；阶段切换不关闭或重建窗口，已经选择的文件、默认状态和重复策略保持不变。
+
+解析和预览属于只读阶段。用户确认预览前，不创建库存条目、不合并数量，也不写入订单批次记录；只有用户确认后才进入模型匹配和最终写入。写入失败时不得把未完成批次伪装为成功结果。
+
+EDA 模型匹配先按规范化后的 C 编号去重，同一批次内相同 C 编号只查询一次，再把结果复用到对应行。不同 C 编号使用有上限的小并发队列，避免逐行串行查询造成长时间等待，也不得无节制地同时调用宿主器件库；窗口持续显示已完成数量、总数量和当前阶段，并允许用户判断任务仍在进行。
+
+每个文件会生成 SHA-256 指纹，并从标准文件名或内容中提取 `SO` 订单号。以下情况会跳过整个文件，不增加库存数量：
+
+- 指纹与历史导入文件相同；
+- 订单号与历史导入订单相同，即使文件是重新导出的；
+- 同一批次中较早的文件已有相同指纹或订单号。
+
+确认导入后，库存变化和 schema-v4 批次记录在同一次持久化中提交。批次记录包含文件摘要、导入时间、重复策略和结果，不包含 Excel 原文、订单抬头、收件人、电话或地址。升级前已经导入但没有批次历史的订单无法自动追溯，因此首次使用新版本时仍应检查预览。
+
+## CSV 示例
 
 ```csv
 C编号,商品名称,数量,大概数量,是否用完,仓位,备注
@@ -10,7 +47,7 @@ C25804,10k 电阻,100,否,否,A-01,0603
 C12345,1uF 电容,20,是,是,B-02,已全部使用
 ```
 
-## JSON example
+## JSON 示例
 
 ```json
 [
@@ -24,15 +61,19 @@ C12345,1uF 电容,20,是,是,B-02,已全部使用
 ]
 ```
 
-Recognized fields include Chinese and English aliases for:
+## 可识别字段
 
-- LCSC / supplier part number
-- component name
-- quantity
-- manufacturer and manufacturer part number
-- package / footprint
-- exact or estimated quantity
-- depleted / used-up state
-- storage location and note
+下列字段均支持中文和英文别名：
 
-Rows can set `是否用完` / `Status` individually. When a row has no state column, the import dialog applies the selected default. Duplicate parts are matched by C number first, then manufacturer plus manufacturer part number, then name; the user chooses add, replace, or skip before import.
+- LCSC/C 编号或供应商编号；
+- 元器件名称；
+- 数量；
+- 制造商和厂家型号；
+- 商品封装或模型封装；
+- 精确数量或估算数量；
+- 已用完状态；
+- 存放位置和备注。
+
+每一行都可以通过 `是否用完` 或 `Status` 单独设置状态。某一行没有状态列时，导入对话框会应用用户选择的默认状态。
+
+重复项首先按 C 编号匹配，其次按“制造商 + 厂家型号”匹配，最后按名称匹配。导入前由用户选择数量累加、替换或跳过策略。

@@ -1,24 +1,29 @@
-# Cross-device validation
+# 跨设备验证清单
 
-Official documentation does not define cross-device behavior for extension user configuration. Complete this matrix with the same account before claiming automatic synchronization.
+官方文档没有定义扩展用户配置的跨设备行为。在宣称库存能够自动同步之前，必须使用同一账号完成以下矩阵，并记录客户端版本、时间和传播延迟。
 
-| Test | Expected observation | Result |
+| 测试 | 预期观察 | 结果 |
 | --- | --- | --- |
-| Web A adds an inventory item; Desktop B opens inventory | Item appears and propagation delay is recorded | Pending |
-| Desktop B changes a different item; Web A reopens inventory | Change appears without reinstall | Pending |
-| A and B edit the same item while both are online | Conflict behavior is recorded | Pending |
-| A edits offline and reconnects | Recovery behavior and winning value are recorded | Pending |
-| Switch to another account | Inventory is isolated by account | Pending |
-| Uninstall/reinstall the same UUID | Data retention behavior is recorded | Pending |
-| Upgrade extension with the same UUID | Inventory remains readable | Pending |
-| Store 100, 1000 and 5000 items | Capacity, latency and write failures are recorded | Pending |
+| Web 端 A 添加库存，桌面端 B 打开库存 | 条目出现，并记录传播延迟 | 待验证 |
+| 桌面端 B 修改另一条库存，Web 端 A 重新打开库存 | 不重装扩展即可看到修改 | 待验证 |
+| A、B 同时在线并编辑同一条目 | 记录冲突表现和最终胜出值 | 待验证 |
+| A 离线编辑后重新联网 | 记录恢复行为和最终胜出值 | 待验证 |
+| 切换到另一账号 | 不同账号的库存相互隔离 | 待验证 |
+| 卸载后以相同 UUID 重装 | 记录数据是否保留 | 待验证 |
+| 使用相同 UUID 升级扩展 | 既有库存仍可读取 | 待验证 |
+| 分别保存 100、1000 和 5000 条库存 | 记录容量、延迟和写入失败情况 | 待验证 |
 
-Also validate these official BETA paths in both Web and Desktop:
+以下官方 BETA 能力也需要分别在 Web 端和桌面端验证：
 
-- lookup a valid, invalid and duplicate C number;
-- copy to Favorites and verify fallback to the personal library;
-- import UTF-8 CSV and JSON with Chinese filenames;
-- place an in-stock part from the schematic menu;
-- confirm that binding a part to the mouse does not deduct inventory.
+- 查询有效、无效和重复的 C 编号；
+- 导入到个人库，验证已存在器件不会重复复制，并验证个人库失败时收藏库的尽力回退；
+- 导入带中文文件名的立创商城真实 `.xls` 订单详情，并分别回归 `.xlsx`、UTF-8 CSV 和 JSON；
+- 确认 Web 与桌面端均能跳过空白/隐藏模板工作表，正确读取带“个”单位的数量，且不会重复导入同一订单页；
+- 同时选择多个订单，确认预览中的订单号、行数、数量和预计变化正确；再次选择相同文件或同订单号的重新导出文件时，应显示历史导入时间并保持库存数量不变；
+- 在一台设备完成批量导入后，从另一设备查看 schema-v4 批次历史能否随库存一起出现；
+- 从原理图菜单放置有库存的元器件；
+- 确认绑定元器件到鼠标不会自动扣减库存；
+- 桌面端指定路径备份失败时不影响 EDA 主存储；
+- Web 端不支持直接路径写入时仍可手动导出备份。
 
-If cross-device storage validation fails, retain local inventory plus JSON backup and do not label the feature as synchronized. Reliable automatic synchronization would then require a separate backend or a future official cloud-storage API.
+如果跨设备验证失败，应继续把 EDA 用户配置视为当前客户端的运行时主存储，并依靠本地 JSON 备份保证可恢复性，不得把该能力描述为“已同步”。可靠的自动同步需要独立后端或未来官方提供的云存储 API。
