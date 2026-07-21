@@ -1,4 +1,4 @@
-import type { EdaModelStatus, QuantityPrecision, StockState } from '../../../features/inventory/domain/inventory-item';
+import type { EdaModelStatus, InventorySource, MarketplaceEvidence, QuantityPrecision, StockState } from '../../../features/inventory/domain/inventory-item';
 import type {
 	InventoryOverviewCategory,
 	InventoryOverviewInput,
@@ -15,6 +15,7 @@ export const INVENTORY_OVERVIEW_IFRAME_PATH = '/iframe/inventory-overview.html';
 export const INVENTORY_OVERVIEW_REQUEST_KEY = 'inventory-overview-panel.v2.request';
 export const INVENTORY_OVERVIEW_RESULT_KEY = 'inventory-overview-panel.v2.result';
 export const INVENTORY_OVERVIEW_RESPONSE_KEY = 'inventory-overview-panel.v2.response';
+export const INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY = 'inventory-overview-panel.v2.window-control';
 export const INVENTORY_OVERVIEW_PROTOCOL_VERSION = 2;
 
 export type InventoryOverviewPanelStage = 'panel-rendered' | 'request-read' | 'script-started';
@@ -32,7 +33,10 @@ const LABEL_KEYS = [
 	'closeCategories',
 	'allCategories',
 	'unclassified',
+	'systemCategories',
+	'userCategories',
 	'manageCategories',
+	'importEdaCategories',
 	'addRootCategory',
 	'addChildCategory',
 	'renameCategory',
@@ -90,12 +94,31 @@ const LABEL_KEYS = [
 	'manufacturer',
 	'manufacturerPartNumber',
 	'package',
+	'edaFootprint',
+	'edaSymbol',
 	'description',
 	'precision',
 	'exact',
 	'estimated',
 	'depleted',
+	'inStock',
+	'stockState',
 	'note',
+	'marketplace',
+	'marketplaceFromOrder',
+	'marketplaceUserConfirmed',
+	'marketplaceUnconfirmed',
+	'marketplaceNotLinked',
+	'source',
+	'sourceManual',
+	'sourceMarketplace',
+	'sourceCatalog',
+	'sourceOrder',
+	'createdAt',
+	'revision',
+	'copyLcscPartNumber',
+	'copySucceeded',
+	'copyFailed',
 	'save',
 	'nameRequired',
 	'lcscInvalid',
@@ -145,14 +168,20 @@ export interface InventoryOverviewItemSnapshot {
 	manufacturerPartNumber: string;
 	manufacturer: string;
 	package: string;
+	edaFootprint: string;
+	edaSymbol: string;
 	description: string;
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state: StockState;
 	location: string;
 	note: string;
+	marketplaceEvidence?: MarketplaceEvidence;
 	edaModelStatus: EdaModelStatus;
 	hasEdaModel: boolean;
+	source: InventorySource;
+	createdAt: string;
+	createdAtLabel: string;
 	updatedAt: string;
 	updatedAtLabel: string;
 	revision: number;
@@ -320,14 +349,20 @@ function createItemSnapshot(item: InventoryOverviewInput['items'][number]): Inve
 		manufacturerPartNumber: item.identity.manufacturerPartNumber ?? '',
 		manufacturer: item.identity.manufacturer ?? '',
 		package: item.identity.package ?? '',
+		edaFootprint: item.edaModelReference?.footprintName ?? '',
+		edaSymbol: item.edaModelReference?.symbolName ?? '',
 		description: item.identity.description ?? '',
 		quantity: item.quantity,
 		precision: item.precision,
 		state: item.state,
 		location: item.location ?? '',
 		note: item.note ?? '',
+		marketplaceEvidence: item.marketplaceReference?.evidence,
 		edaModelStatus: item.edaModelStatus,
 		hasEdaModel: Boolean(item.edaModelReference),
+		source: item.source,
+		createdAt: item.createdAt,
+		createdAtLabel: formatTimestamp(item.createdAt),
 		updatedAt: item.updatedAt,
 		updatedAtLabel: formatTimestamp(item.updatedAt),
 		revision: item.revision,
@@ -489,7 +524,7 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 		&& isRevisionRefs(value.categories, 2000)) {
 		return true;
 	}
-	return value.type === 'refresh';
+	return value.type === 'import-eda-categories' || value.type === 'refresh';
 }
 
 function isOperationResultSnapshot(value: unknown): value is InventoryOverviewOperationResultSnapshot {
@@ -580,14 +615,22 @@ function isItems(value: unknown): value is InventoryOverviewItemSnapshot[] {
 			|| !isText(item.manufacturerPartNumber, 500)
 			|| !isText(item.manufacturer, 500)
 			|| !isText(item.package, 500)
+			|| !isText(item.edaFootprint, 500)
+			|| !isText(item.edaSymbol, 500)
 			|| !isText(item.description, 4000)
 			|| !(item.quantity === null || isSafeNonNegativeInteger(item.quantity))
 			|| !isPrecision(item.precision)
 			|| !isStockState(item.state)
 			|| !isText(item.location, 1000)
 			|| !isText(item.note, 4000)
+			|| (item.marketplaceEvidence !== undefined
+				&& item.marketplaceEvidence !== 'user-confirmed'
+				&& item.marketplaceEvidence !== 'order-import')
 			|| !isModelStatus(item.edaModelStatus)
 			|| typeof item.hasEdaModel !== 'boolean'
+			|| !isInventorySource(item.source)
+			|| !isText(item.createdAt, 1000)
+			|| !isText(item.createdAtLabel, 1000)
 			|| !isText(item.updatedAt, 1000)
 			|| !isText(item.updatedAtLabel, 1000)
 			|| !isSafeNonNegativeInteger(item.revision)) {
@@ -646,6 +689,10 @@ function isStockState(value: unknown): value is StockState {
 
 function isModelStatus(value: unknown): value is EdaModelStatus {
 	return value === 'available' || value === 'missing' || value === 'failed' || value === 'unchecked';
+}
+
+function isInventorySource(value: unknown): value is InventorySource {
+	return value === 'manual' || value === 'marketplace' || value === 'catalog' || value === 'order';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

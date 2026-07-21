@@ -4,6 +4,64 @@
 
 # Changelog
 
+## 0.4.12 - 2026-07-22
+
+- Fix the inventory overview disappearing immediately after it becomes ready. Remove eager startup autofocus, wait 300 ms for EDA host focus to settle, then focus the search field and arm auto-hide so startup blur is not mistaken for a workspace click.
+- Preserve direct EDA-click hiding after stable focus, native minimized-window controls, in-flight operation protection, and replacement of old sessions.
+
+## 0.4.11 - 2026-07-22
+
+- Fix old inventory-overview polling sessions surviving plugin import or version changes and later showing `Cannot read properties of undefined (reading 'inventory-overview-panel.v2.result')`. An old session now stops immediately when it observes a replacement `requestId` instead of accumulating in the background.
+- Treat loss of the EDA extension storage context after the overview is ready as normal host-session termination, avoiding generic error dialogs unrelated to the user's current action.
+
+## 0.4.10 - 2026-07-22
+
+- Fix auto-hide when the user opens the inventory overview and clicks the EDA workspace without first interacting with any overview control. The IFrame and search field now receive explicit focus before ready so the first external click reliably emits blur.
+- Preserve the category-management, details, confirmation-overlay, and in-flight operation behavior verified in 0.4.9. Relevance sorting is intentionally unchanged pending separate product review.
+
+## 0.4.9 - 2026-07-22
+
+- Fix intermittent `Inventory overview panel unavailable: render-failed` failures. If the plugin controller was recreated while EDA retained an old hidden IFrame, hide and close that orphaned session before opening a new one so the new request cannot time out waiting for ready in an old page. Old sessions may clean up only bridge data and windows owned by their `requestId`, so a later timeout cannot disrupt the replacement session. Reopening within the same controller still restores the original window and all view state directly.
+- Drive auto-hide directly from overview IFrame blur plus a visibility check instead of an unreliable blur/main-window-focus event pair. Category management, details, and confirmation overlays may hide with the overview; only an active import or write operation suppresses hiding.
+- Use the native `constricted` minimized title window. Host window-control notifications suppress auto-hide for the blur caused by minimize, restore, or maximize actions so the compact title remains available for direct restoration.
+- Correct empty-search Relevance semantics: All now sorts by stock state and global name instead of keeping the previously viewed child category as the leading block. Category grouping remains available only through the explicit Category sort.
+- Add silent overview diagnostics for stale-session recovery, request storage, IFrame opening, render stages, restored display, explicit render errors, and ready timeouts without opening the log panel during normal overview use.
+
+## 0.4.8 - 2026-07-22
+
+- Auto-hide the inventory overview when focus moves directly back to the EDA main window. This only hides the fixed overview IFrame, does not alter host menus or window settings, and the existing Inventory overview command restores the same session.
+- Accept auto-hide only when main-window focus immediately follows IFrame blur. Dragging, category management, detail/confirmation dialogs, and in-flight operations suppress hiding to avoid disrupting child workflows.
+- Fix stale sorting when returning from a child category to All by atomically applying the category, currently displayed sort, and first page before sorting the complete result set.
+
+## 0.4.7 - 2026-07-22
+
+- Exclude the virtual `ALL` root returned by EDA category APIs. When it wraps real categories or prefixes a device category path, preserve and promote the following real top-level and child categories.
+- Align category-import wording with behavior: same-name sibling categories are merged and only missing categories are added, rather than describing them as skipped.
+- Document that copying into the official EDA personal library depends on `LIB_Device.copy()`, which remains BETA and is explicitly discouraged for production use. Success still requires a verified target-library readback.
+- Preserve the personal-library copy failure reason and non-sensitive attempt states in simplified diagnostics so API rejection, API errors, and failed post-copy verification can be distinguished.
+
+## 0.4.6 - 2026-07-22
+
+- Fix false `already-present` personal-library results. A C-number lookup must belong to and be readable from the current JLCEDA workspace personal library; a new copy must also match the target library, returned UUID, and C number or source-device identity before success is reported.
+- Replace the overview summary with complete details and a separately copyable LCSC C number, including a valid supplier C-number fallback for legacy records. Show inventory package and EDA model footprint separately, using “—” when both are absent.
+- Preserve horizontal and vertical table position when selecting or clearing components instead of jumping to the top. Filters, category changes, and pagination still reset to their new result positions.
+- Put the only visible Import EDA categories entry inside the overview's Manage categories dialog. Keep the dialog open, refresh categories, and report added, skipped, or partial results without changing the EDA header menu.
+- Enable JLCEDA's native minimize control for the inventory overview so the EDA workspace can be used without destroying the current overview session. The extension still does not auto-open after installation.
+
+## 0.4.5 - 2026-07-21
+
+- Remove the unapproved direct Inventory overview top-level command and added editor contexts. Restore exactly one grouped Component Inventory menu in Home, Schematic, and PCB so enabling "Show in top menu" does not make the extension menu disappear.
+- Restore `headerMenus` item-for-item to the 0.4.3 menu manifest. Import EDA categories is no longer attached to the EDA header until its placement is confirmed.
+- Add a manifest regression test that locks the three established contexts and their original grouped menu items.
+
+## 0.4.4 - 2026-07-21
+
+- Make inventory dragging discoverable from non-interactive row areas, move all selected items when dragging a selected row, reveal every child drop target during a drag, and separate system categories from user categories in the sidebar.
+- Show the inventory package prominently in the overview table and details, fall back to the EDA model footprint when needed, and retain both values in details for comparison and classification.
+- Add explicit, idempotent import of two-level categories from the personal or Favorites library without automatically moving inventory items. If the complete tree is unavailable, import categories used by devices and report the limitation.
+- Stop treating Favorites as a writable fallback. A personal-library copy is successful only after the returned device can be read back from the personal library.
+- Add a direct Inventory overview top-menu entry in supported EDA editor contexts. Users still control top-row visibility through the Extension Manager setting.
+
 ## 0.4.3 - 2026-07-21
 
 - Give expanded child categories a restrained contrasting surface. Component assignment now uses Pointer Events with document-level fallback listeners instead of relying on unstable HTML5 drag-and-drop or pointer capture in the embedded EDA browser.

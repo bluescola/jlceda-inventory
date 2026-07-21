@@ -4,6 +4,7 @@ import type { InventoryEditInput, InventoryService } from '../../../features/inv
 import type { InventoryCategory } from '../../../features/inventory/domain/inventory-category';
 import type { EdaModelReference, EdaModelStatus, InventoryItem, MarketplaceReference, NewInventoryItem, PartIdentity, QuantityPrecision } from '../../../features/inventory/domain/inventory-item';
 import type { OrderImportBatchInput, OrderImportBatchPreview } from '../../../features/inventory/domain/order-import-batch';
+import type { EdaLibraryCategories, EdaLibraryCategorySource } from '../../../features/inventory/ports/eda-library-categories';
 import type { MarketplaceNavigator } from '../../../features/marketplace-catalog/ports/marketplace-navigator';
 import type { EdaFileClient, PickedOrderFile } from '../eda/file-client';
 import type { Translate } from '../eda/i18n-client';
@@ -75,6 +76,7 @@ export class NativeInventoryController {
 		private readonly marketplace: MarketplaceNavigator,
 		private readonly commonLibrary: CommonLibrary,
 		private readonly files: EdaFileClient,
+		private readonly edaLibraryCategories: EdaLibraryCategories,
 		private readonly placement: EdaPlacementClient,
 		private readonly dialog: NativeDialog,
 		private readonly diagnostics: Diagnostics,
@@ -88,6 +90,7 @@ export class NativeInventoryController {
 	) {}
 
 	public openInventory(): Promise<void> {
+		const trace = this.diagnostics.start('inventory-overview', false);
 		return this.execute(async () => {
 			let document = await this.inventory.exportDocument();
 			const pendingModelMatches = new Map<string, PendingOverviewModelMatch>();
@@ -111,8 +114,8 @@ export class NativeInventoryController {
 				}
 				document = await this.inventory.exportDocument();
 				return { ...result, snapshot: { items: document.items, categories: document.categories } };
-			});
-		});
+			}, trace);
+		}, trace);
 	}
 
 	public addByLcscPartNumber(): Promise<void> {
@@ -121,6 +124,66 @@ export class NativeInventoryController {
 
 	public addCustomComponent(): Promise<void> {
 		return this.openInventoryCreatePanel('custom');
+	}
+
+	public importEdaCategories(): Promise<void> {
+		return this.execute(async () => {
+			const result = await this.importEdaCategoriesCore();
+			if ('message' in result && result.message) {
+				this.dialog.info(result.message, this.t('categoryImport.title'));
+			}
+		});
+	}
+
+	private async importEdaCategoriesCore(): Promise<InventoryOverviewOperationResult> {
+		const sources = await this.edaLibraryCategories.availableSources();
+		if (sources.length === 0) {
+			return { status: 'failed', message: this.t('categoryImport.noLibrary') };
+		}
+		const selected = sources.length === 1
+			? sources[0]
+			: await this.dialog.select(
+				sources.map(source => ({ value: source, label: this.sourceLabel(source) })),
+				this.t('categoryImport.title'),
+				this.t('categoryImport.source'),
+				sources[0],
+			) as EdaLibraryCategorySource | undefined;
+		if (!selected) {
+			return { status: 'cancelled' };
+		}
+
+		const readResult = await this.edaLibraryCategories.read(selected);
+		if (readResult.status === 'unavailable') {
+			return { status: 'failed', message: this.t('categoryImport.noLibrary') };
+		}
+		if (readResult.status === 'unsupported') {
+			return { status: 'failed', message: this.t('categoryImport.unsupported') };
+		}
+		const rootCount = readResult.snapshot.categories.length;
+		const childCount = readResult.snapshot.categories.reduce((total, category) => total + category.children.length, 0);
+		if (rootCount + childCount === 0) {
+			return {
+				status: 'succeeded',
+				message: this.t(readResult.snapshot.complete ? 'categoryImport.empty' : 'categoryImport.emptyIncomplete'),
+			};
+		}
+		if (!await this.dialog.confirm(
+			this.t('categoryImport.confirm', rootCount, childCount, this.sourceLabel(selected)),
+			this.t('categoryImport.title'),
+		)) {
+			return { status: 'cancelled' };
+		}
+
+		const result = await this.inventory.importCategories(readResult.snapshot.categories);
+		const incompleteNote = readResult.snapshot.complete ? '' : `\n\n${this.t('categoryImport.incomplete')}`;
+		return {
+			status: 'succeeded',
+			message: `${this.t('categoryImport.completed', result.added, result.skipped)}${incompleteNote}`,
+		};
+	}
+
+	private sourceLabel(source: EdaLibraryCategorySource): string {
+		return this.t(source === 'personal' ? 'categoryImport.personal' : 'categoryImport.favorite');
 	}
 
 	private openInventoryCreatePanel(mode: InventoryCreateMode): Promise<void> {
@@ -427,6 +490,8 @@ export class NativeInventoryController {
 				case 'reorder-categories':
 					await this.inventory.reorderCategories(intent.parentId, intent.categories);
 					break;
+				case 'import-eda-categories':
+					return this.importEdaCategoriesCore();
 				case 'refresh':
 					break;
 			}
@@ -713,6 +778,7 @@ export class NativeInventoryController {
 			));
 			trace.info('common-library.copy.result', {
 				attempts: result.attempts.map(attempt => `${attempt.target}:${attempt.status}`).join(','),
+				reason: result.status === 'failed' ? result.reason : undefined,
 				status: result.status,
 			});
 			if (result.status === 'failed') {

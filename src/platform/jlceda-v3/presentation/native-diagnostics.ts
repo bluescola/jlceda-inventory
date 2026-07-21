@@ -10,7 +10,7 @@ export interface DiagnosticTrace {
 }
 
 export interface Diagnostics {
-	start: (operation: string) => DiagnosticTrace;
+	start: (operation: string, reveal?: boolean) => DiagnosticTrace;
 	show: () => Promise<void>;
 	flush: () => Promise<void>;
 	exportDocument: () => Promise<DiagnosticLogDocument>;
@@ -59,12 +59,14 @@ export class NativeDiagnostics implements Diagnostics {
 		this.store = new DiagnosticLogStore(extensionVersion, this.mode);
 	}
 
-	public start(operation: string): DiagnosticTrace {
+	public start(operation: string, reveal = true): DiagnosticTrace {
 		const id = `${Date.now().toString(36)}-${++this.sequence}`;
 		const trace = new EdaDiagnosticTrace(id, operation, this.mode, this.store);
 		trace.info('workflow.start', { mode: this.mode, version: this.store.extensionVersion });
-		this.showStartedMessage();
-		void this.openLogPanel().catch(() => undefined);
+		if (reveal) {
+			this.showStartedMessage();
+			void this.openLogPanel().catch(() => undefined);
+		}
 		return trace;
 	}
 
@@ -264,8 +266,9 @@ function simplifyDetails(details: DiagnosticDetails | undefined, type: Diagnosti
 	// Keep field identity and lengths only — never field contents — so release
 	// builds can still prove whether multi-field input/submit fired.
 	const keys = type === 'error'
-		? ['changedFields', 'elapsedMs', 'error', 'errorName', 'field', 'length', 'mode', 'opened', 'returnedType', 'stage', 'status', 'step', 'version']
+		? ['attempts', 'changedFields', 'elapsedMs', 'error', 'errorName', 'field', 'length', 'mode', 'opened', 'reason', 'returnedType', 'stage', 'status', 'step', 'version']
 		: [
+				'attempts',
 				'changedFields',
 				'descriptionLength',
 				'elapsedMs',
@@ -281,6 +284,7 @@ function simplifyDetails(details: DiagnosticDetails | undefined, type: Diagnosti
 				'opened',
 				'packageLength',
 				'path',
+				'reason',
 				'returnedType',
 				'stage',
 				'status',

@@ -25,6 +25,10 @@ export function importOrderFile(): Promise<void> {
 	return withCurrentLanguage(() => controller.importOrderFile());
 }
 
+export function importEdaCategories(): Promise<void> {
+	return withCurrentLanguage(() => controller.importEdaCategories());
+}
+
 export function exportInventoryBackup(): Promise<void> {
 	return withCurrentLanguage(() => controller.exportInventoryBackup());
 }

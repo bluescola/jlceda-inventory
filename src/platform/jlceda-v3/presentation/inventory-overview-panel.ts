@@ -56,6 +56,7 @@ export type InventoryOverviewAction
 		| { type: 'rename-category'; category: InventoryOverviewRevisionRef; name: string }
 		| { type: 'delete-category'; category: InventoryOverviewRevisionRef; confirmed: true }
 		| { type: 'reorder-categories'; parentId?: string; categories: InventoryOverviewRevisionRef[] }
+		| { type: 'import-eda-categories' }
 		| { type: 'refresh' };
 
 export type InventoryOverviewIntent = InventoryOverviewAction & { viewState: InventoryOverviewViewState };

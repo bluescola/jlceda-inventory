@@ -79,4 +79,42 @@ describe('runtime locale files', () => {
 		expect([...sourceTexts].filter(text => !(text in english))).toEqual([]);
 		expect(english['关于库存扩展']).toBe('About inventory extension');
 	});
+
+	it('keeps one grouped inventory menu in the established editor contexts', () => {
+		const manifest = JSON.parse(readFileSync(resolve('extension.json'), 'utf8')) as {
+			headerMenus: Record<string, Array<{ id: string; menuItems?: Array<{ id: string; registerFn?: string }>; registerFn?: string }>>;
+		};
+		const expectedMenuItems: Record<string, string[]> = {
+			home: [
+				'inventoryOverview',
+				'addByLcsc',
+				'addManual',
+				'importOrder',
+				'exportBackup',
+				'viewDiagnosticLogs',
+				'exportDiagnosticLogs',
+				'about',
+			],
+			sch: [
+				'inventoryOverview',
+				'placeFromInventory',
+				'addByLcsc',
+				'viewDiagnosticLogs',
+				'exportDiagnosticLogs',
+			],
+			pcb: [
+				'inventoryOverview',
+				'addByLcsc',
+				'viewDiagnosticLogs',
+				'exportDiagnosticLogs',
+			],
+		};
+		expect(Object.keys(manifest.headerMenus).sort()).toEqual(['home', 'pcb', 'sch']);
+		for (const [context, menus] of Object.entries(manifest.headerMenus)) {
+			expect(menus).toHaveLength(1);
+			expect(menus[0]).toMatchObject({ id: 'componentInventory' });
+			expect(menus[0]).not.toHaveProperty('registerFn');
+			expect(menus[0].menuItems?.map(item => item.id)).toEqual(expectedMenuItems[context]);
+		}
+	});
 });

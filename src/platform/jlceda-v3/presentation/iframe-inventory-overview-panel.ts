@@ -2,6 +2,7 @@ import type { Translate } from '../eda/i18n-client';
 import type {
 	IFrameInventoryOverviewRequest,
 	InventoryOverviewLabels,
+	InventoryOverviewPanelStage,
 } from './iframe-inventory-overview-protocol';
 import type {
 	InventoryOverviewInput,
@@ -17,6 +18,7 @@ import {
 	INVENTORY_OVERVIEW_REQUEST_KEY,
 	INVENTORY_OVERVIEW_RESPONSE_KEY,
 	INVENTORY_OVERVIEW_RESULT_KEY,
+	INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY,
 	parseIFrameInventoryOverviewResult,
 } from './iframe-inventory-overview-protocol';
 import { DIALOG_SETTLE_DELAY_MS } from './native-dialog';
@@ -29,6 +31,7 @@ const READY_TIMEOUT_MS = 10_000;
 interface IFrameOpenOptions {
 	title: string;
 	onClose: () => void;
+	onWindowControl: (action: 'maximize' | 'minimize') => Promise<void>;
 }
 
 export interface InventoryOverviewIFrameHost {
@@ -36,6 +39,8 @@ export interface InventoryOverviewIFrameHost {
 	write: (key: string, value: unknown) => Promise<boolean>;
 	remove: (key: string) => Promise<boolean>;
 	open: (options: IFrameOpenOptions) => Promise<boolean>;
+	hide: () => Promise<boolean>;
+	show: () => Promise<boolean>;
 	close: () => Promise<boolean>;
 	startPolling: (id: string, intervalMs: number, callback: () => void) => boolean;
 	stopPolling: (id: string) => boolean;
@@ -57,6 +62,8 @@ type PanelOutcome
 
 export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 	private queue: Promise<void> = Promise.resolve();
+	private sessionActive = false;
+	private sessionOpened = false;
 
 	public constructor(
 		private readonly t: Translate,
@@ -68,10 +75,61 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		onOperation: InventoryOverviewOperationHandler,
 		trace?: DiagnosticTrace,
 	): Promise<void> {
+		if (this.sessionActive) {
+			if (!this.sessionOpened) {
+				return Promise.resolve();
+			}
+			trace?.info('inventory-overview-panel.iframe.show.request');
+			return this.host.show().then((shown) => {
+				trace?.info('inventory-overview-panel.iframe.show.response', { status: shown ? 'shown' : 'failed' });
+				if (!shown) {
+					throw new InventoryOverviewPanelUnavailableError('init-failed');
+				}
+			});
+		}
+		this.sessionActive = true;
 		return this.enqueue(async () => {
-			const request = createInventoryOverviewRequest(createRequestId(), this.labels(), input);
-			await this.openExclusive(request, onOperation, trace);
+			try {
+				await this.closeStaleHostSession(trace);
+				const request = createInventoryOverviewRequest(createRequestId(), this.labels(), input);
+				await this.openExclusive(request, onOperation, trace);
+			}
+			finally {
+				this.sessionActive = false;
+				this.sessionOpened = false;
+			}
 		});
+	}
+
+	private async closeStaleHostSession(trace?: DiagnosticTrace): Promise<void> {
+		let staleSessionFound = false;
+		try {
+			staleSessionFound = await this.host.hide();
+			trace?.info('inventory-overview-panel.stale-session.probe', {
+				status: staleSessionFound ? 'found' : 'missing',
+			});
+		}
+		catch (error) {
+			trace?.warn('inventory-overview-panel.stale-session.probe-failed', {
+				errorName: errorName(error),
+			});
+		}
+		if (!staleSessionFound) {
+			return;
+		}
+
+		try {
+			const closed = await this.host.close();
+			trace?.info('inventory-overview-panel.stale-session.closed', {
+				status: closed ? 'closed' : 'already-closed',
+			});
+		}
+		catch (error) {
+			trace?.warn('inventory-overview-panel.stale-session.close-failed', {
+				errorName: errorName(error),
+			});
+		}
+		await delay(DIALOG_SETTLE_DELAY_MS);
 	}
 
 	private enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -91,6 +149,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		let ready = false;
 		let settled = false;
 		let readyDeadline: number | undefined;
+		let lastObservedStage: InventoryOverviewPanelStage | undefined;
 		const observedStages = new Set<string>();
 		const observedOperations = new Set<string>();
 		let operationQueue: Promise<void> = Promise.resolve();
@@ -104,6 +163,23 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				resolve(outcome);
 			};
 		});
+		const stopAfterReadFailure = (error: unknown): void => {
+			if (ready) {
+				trace?.warn('inventory-overview-panel.iframe.read.stopped', {
+					errorName: errorName(error),
+					stage: lastObservedStage ?? 'ready',
+					status: 'host-unavailable',
+				});
+				resolveOutcome({ status: 'cancelled' });
+				return;
+			}
+			trace?.error('inventory-overview-panel.iframe.result.invalid', {
+				error: errorMessage(error),
+				errorName: errorName(error),
+				stage: lastObservedStage ?? 'none',
+			});
+			resolveOutcome({ status: 'failed', error, ready: false });
+		};
 		const readResult = (): void => {
 			try {
 				const result = parseIFrameInventoryOverviewResult(
@@ -114,6 +190,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 					return;
 				}
 				if (result.status === 'progress') {
+					lastObservedStage = result.stage;
 					if (!observedStages.has(result.stage)) {
 						observedStages.add(result.stage);
 						trace?.info('inventory-overview-panel.iframe.stage', { stage: result.stage });
@@ -129,6 +206,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				}
 				if (result.status === 'failed') {
 					trace?.error('inventory-overview-panel.iframe.failed', {
+						error: result.error,
 						errorName: result.errorName,
 						stage: result.stage,
 					});
@@ -151,12 +229,29 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				resolveOutcome({ status: 'cancelled' });
 			}
 			catch (error) {
-				resolveOutcome({ status: 'failed', error, ready });
+				stopAfterReadFailure(error);
 			}
 		};
 		const poll = (): void => {
+			try {
+				const activeRequestId = bridgeRequestId(this.host.read(INVENTORY_OVERVIEW_REQUEST_KEY));
+				if (activeRequestId !== request.requestId) {
+					trace?.info('inventory-overview-panel.iframe.session.superseded', {
+						status: activeRequestId ? 'newer-request' : 'request-removed',
+					});
+					resolveOutcome({ status: 'cancelled' });
+					return;
+				}
+			}
+			catch (error) {
+				stopAfterReadFailure(error);
+				return;
+			}
 			readResult();
 			if (!settled && !ready && readyDeadline !== undefined && Date.now() >= readyDeadline) {
+				trace?.error('inventory-overview-panel.iframe.ready.timeout', {
+					stage: lastObservedStage ?? 'none',
+				});
 				resolveOutcome({ status: 'failed', error: new Error('The inventory overview IFrame did not become ready.'), ready: false });
 			}
 		};
@@ -164,6 +259,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		try {
 			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESULT_KEY, trace);
 			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESPONSE_KEY, trace);
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, trace);
 			if (!await this.host.write(INVENTORY_OVERVIEW_REQUEST_KEY, request)) {
 				throw new InventoryOverviewPanelUnavailableError('init-failed');
 			}
@@ -187,10 +283,21 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 					readResult();
 					resolveOutcome({ status: 'cancelled' });
 				},
+				onWindowControl: async (action) => {
+					trace?.info('inventory-overview-panel.iframe.window-control', { status: action });
+					if (!await this.host.write(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, {
+						action,
+						requestId: request.requestId,
+						timestamp: Date.now(),
+					})) {
+						trace?.warn('inventory-overview-panel.iframe.window-control.rejected', { status: action });
+					}
+				},
 			});
 			if (!opened) {
 				throw new InventoryOverviewPanelUnavailableError('init-failed');
 			}
+			this.sessionOpened = true;
 			readyDeadline = Date.now() + READY_TIMEOUT_MS;
 			trace?.info('inventory-overview-panel.iframe.opened');
 			poll();
@@ -212,13 +319,27 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			throw new InventoryOverviewPanelUnavailableError('init-failed', { cause: error });
 		}
 		finally {
+			const ownsHostSession = this.bridgeValueBelongsToRequest(
+				INVENTORY_OVERVIEW_REQUEST_KEY,
+				request.requestId,
+				trace,
+			);
 			if (pollStarted) {
-				this.host.stopPolling(timerId);
+				try {
+					this.host.stopPolling(timerId);
+				}
+				catch (error) {
+					trace?.warn('inventory-overview-panel.iframe.polling.stop-failed', {
+						errorName: errorName(error),
+					});
+				}
 			}
-			await this.removeBridgeValue(INVENTORY_OVERVIEW_REQUEST_KEY, trace);
-			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESULT_KEY, trace);
-			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESPONSE_KEY, trace);
-			if (opened) {
+			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_REQUEST_KEY, request.requestId, trace);
+			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_RESULT_KEY, request.requestId, trace);
+			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_RESPONSE_KEY, request.requestId, trace);
+			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, request.requestId, trace);
+			if (opened && ownsHostSession) {
+				this.sessionOpened = false;
 				try {
 					const closed = await this.host.close();
 					trace?.info('inventory-overview-panel.iframe.closed', { status: closed ? 'closed' : 'already-closed' });
@@ -226,6 +347,11 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				catch (error) {
 					trace?.warn('inventory-overview-panel.iframe.close.failed', { errorName: errorName(error) });
 				}
+			}
+			else if (opened) {
+				trace?.info('inventory-overview-panel.iframe.close.skipped', {
+					reason: 'newer-request-active',
+				});
 			}
 			await delay(DIALOG_SETTLE_DELAY_MS);
 		}
@@ -288,6 +414,33 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		}
 	}
 
+	private async removeBridgeValueForRequest(
+		key: string,
+		requestId: string,
+		trace?: DiagnosticTrace,
+	): Promise<void> {
+		if (!this.bridgeValueBelongsToRequest(key, requestId, trace)) {
+			return;
+		}
+		await this.removeBridgeValue(key, trace);
+	}
+
+	private bridgeValueBelongsToRequest(
+		key: string,
+		requestId: string,
+		trace?: DiagnosticTrace,
+	): boolean {
+		try {
+			return bridgeRequestId(this.host.read(key)) === requestId;
+		}
+		catch (error) {
+			trace?.warn('inventory-overview-panel.iframe.cleanup.read-failed', {
+				errorName: errorName(error),
+			});
+			return false;
+		}
+	}
+
 	private labels(): InventoryOverviewLabels {
 		return {
 			title: this.t('inventoryOverview.title'),
@@ -302,7 +455,10 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			closeCategories: this.t('inventoryOverview.closeCategories'),
 			allCategories: this.t('inventoryOverview.allCategories'),
 			unclassified: this.t('inventoryOverview.unclassified'),
+			systemCategories: this.t('inventoryOverview.systemCategories'),
+			userCategories: this.t('inventoryOverview.userCategories'),
 			manageCategories: this.t('inventoryOverview.manageCategories'),
+			importEdaCategories: this.t('categoryImport.title'),
 			addRootCategory: this.t('inventoryOverview.addRootCategory'),
 			addChildCategory: this.t('inventoryOverview.addChildCategory'),
 			renameCategory: this.t('inventoryOverview.renameCategory'),
@@ -360,12 +516,31 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			manufacturer: this.t('part.manufacturerLabel'),
 			manufacturerPartNumber: this.t('part.manufacturerPartLabel'),
 			package: this.t('part.packageLabel'),
+			edaFootprint: this.t('edaModel.footprintLabel'),
+			edaSymbol: this.t('edaModel.symbolLabel'),
 			description: this.t('part.descriptionLabel'),
 			precision: this.t('inventoryItem.precision'),
 			exact: this.t('inventory.exact'),
 			estimated: this.t('inventory.estimated'),
 			depleted: this.t('inventory.depleted'),
+			inStock: this.t('inventory.inStock'),
+			stockState: this.t('inventoryItem.stockState'),
 			note: this.t('inventory.noteLabel'),
+			marketplace: this.t('marketplace.section'),
+			marketplaceFromOrder: this.t('marketplace.fromOrder'),
+			marketplaceUserConfirmed: this.t('marketplace.userConfirmed'),
+			marketplaceUnconfirmed: this.t('marketplace.unconfirmed'),
+			marketplaceNotLinked: this.t('marketplace.notLinked'),
+			source: this.t('inventoryItem.source'),
+			sourceManual: this.t('inventoryItem.source.manual'),
+			sourceMarketplace: this.t('inventoryItem.source.marketplace'),
+			sourceCatalog: this.t('inventoryItem.source.catalog'),
+			sourceOrder: this.t('inventoryItem.source.order'),
+			createdAt: this.t('inventoryItem.createdAt'),
+			revision: this.t('inventoryItem.revision'),
+			copyLcscPartNumber: this.t('inventoryOverview.copyLcscPartNumber'),
+			copySucceeded: this.t('inventoryOverview.copySucceeded'),
+			copyFailed: this.t('inventoryOverview.copyFailed'),
 			save: this.t('inventoryItem.save'),
 			nameRequired: this.t('inventoryItem.nameRequired'),
 			lcscInvalid: this.t('part.lcscInvalid'),
@@ -420,12 +595,32 @@ class EdaInventoryOverviewIFrameHost implements InventoryOverviewIFrameHost {
 			PANEL_HEIGHT,
 			INVENTORY_OVERVIEW_IFRAME_ID,
 			{
-				grayscaleMask: true,
+				grayscaleMask: false,
 				maximizeButton: true,
+				minimizeButton: true,
+				minimizeStyle: 'constricted',
 				title: options.title,
-				buttonCallbackFn: button => button === 'close' ? options.onClose() : undefined,
+				buttonCallbackFn: button => button === 'close'
+					? options.onClose()
+					: button === 'minimize' || button === 'maximize'
+						? options.onWindowControl(button)
+						: undefined,
 			},
 		);
+	}
+
+	public hide(): Promise<boolean> {
+		if (typeof eda.sys_IFrame?.hideIFrame !== 'function') {
+			return Promise.resolve(false);
+		}
+		return eda.sys_IFrame.hideIFrame(INVENTORY_OVERVIEW_IFRAME_ID);
+	}
+
+	public show(): Promise<boolean> {
+		if (typeof eda.sys_IFrame?.showIFrame !== 'function') {
+			return Promise.resolve(false);
+		}
+		return eda.sys_IFrame.showIFrame(INVENTORY_OVERVIEW_IFRAME_ID);
 	}
 
 	public close(): Promise<boolean> {
@@ -460,4 +655,17 @@ function errorName(error: unknown): string {
 		return error.name.slice(0, 80);
 	}
 	return typeof error;
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+function bridgeRequestId(value: unknown): string | undefined {
+	return value
+		&& typeof value === 'object'
+		&& 'requestId' in value
+		&& typeof value.requestId === 'string'
+		? value.requestId
+		: undefined;
 }

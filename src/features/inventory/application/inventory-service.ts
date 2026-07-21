@@ -57,6 +57,16 @@ export interface DeleteInventoryCategoryResult {
 	uncategorizedItemIds: string[];
 }
 
+export interface InventoryCategoryImportNode {
+	name: string;
+	children?: readonly string[];
+}
+
+export interface ImportInventoryCategoriesResult {
+	added: number;
+	skipped: number;
+}
+
 export type InventoryEditResult
 	= | { status: 'updated'; item: InventoryItem }
 		| { status: 'duplicate'; candidate: InventoryItem; existing: InventoryItem }
@@ -127,6 +137,52 @@ export class InventoryService {
 		document.categories.push(category);
 		await this.persist(document, timestamp);
 		return category;
+	}
+
+	public async importCategories(input: readonly InventoryCategoryImportNode[]): Promise<ImportInventoryCategoriesResult> {
+		const normalized = input.map(category => ({
+			name: normalizeInventoryCategoryName(category.name),
+			children: (category.children ?? []).map(normalizeInventoryCategoryName),
+		}));
+		const document = await this.repository.load();
+		const timestamp = this.now();
+		const result: ImportInventoryCategoriesResult = { added: 0, skipped: 0 };
+
+		for (const importedRoot of normalized) {
+			let root = findSiblingCategory(document.categories, importedRoot.name);
+			if (root) {
+				result.skipped += 1;
+			}
+			else {
+				root = normalizeInventoryCategory(
+					{ name: importedRoot.name },
+					timestamp,
+					this.createId(),
+					nextCategorySortOrder(document.categories),
+				);
+				document.categories.push(root);
+				result.added += 1;
+			}
+
+			for (const childName of importedRoot.children) {
+				if (findSiblingCategory(document.categories, childName, root.id)) {
+					result.skipped += 1;
+					continue;
+				}
+				document.categories.push(normalizeInventoryCategory(
+					{ name: childName, parentId: root.id },
+					timestamp,
+					this.createId(),
+					nextCategorySortOrder(document.categories, root.id),
+				));
+				result.added += 1;
+			}
+		}
+
+		if (result.added > 0) {
+			await this.persist(document, timestamp);
+		}
+		return result;
 	}
 
 	public async renameCategory(id: string, expectedRevision: number, name: string): Promise<InventoryCategory> {
@@ -721,6 +777,15 @@ function assertUniqueSiblingCategoryName(
 		&& category.name.toLowerCase() === normalizedName)) {
 		throw new Error(`Inventory category already exists: ${name}`);
 	}
+}
+
+function findSiblingCategory(
+	categories: InventoryCategory[],
+	name: string,
+	parentId?: string,
+): InventoryCategory | undefined {
+	const normalizedName = name.toLowerCase();
+	return categories.find(category => category.parentId === parentId && category.name.toLowerCase() === normalizedName);
 }
 
 function assertCompleteCategoryOrder(siblings: InventoryCategory[], order: InventoryCategoryOrderEntry[]): void {

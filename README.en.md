@@ -6,22 +6,23 @@
 
 A personal component inventory extension for JLCEDA Professional V3. It treats LCSC marketplace product information and JLCEDA device models as independent states and helps prioritize existing stock during schematic design.
 
-The current release is `0.4.3`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
+The current release is `0.4.12`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
 
 ## Implemented
 
 - Query the JLCEDA system library first when adding a C-number part. Use model information immediately on a match, and open the LCSC marketplace for confirmation only when lookup is missing or fails.
 - Keep marketplace products and EDA models independent; products without an EDA model can still be saved and managed as inventory.
 - Use the same one-screen IFrame form for both LCSC-number and custom components, entering identity, quantity, category, location, and notes without a chain of native single-field dialogs.
-- Display separate marketplace-evidence and EDA-model statuses, with retryable model matching.
+- Show the inventory package and EDA model footprint prominently in the list and details, alongside separate marketplace-evidence and EDA-model statuses with retryable model matching.
 - Add custom components with exact, estimated, or unknown quantities.
-- Keep the inventory overview mounted as the parent window. Its two-column category manager, details, full editor, delete confirmation, duplicate comparison, and EDA model rematching all run in an upper modal layer without losing search, filters, pagination, scroll, or selection state.
+- Keep the inventory overview mounted as the parent window with a host-native constricted minimize control whose compact title window remains available for manual restore. Clicking the EDA workspace hides the overview together with category management, details, or confirmation overlays; only an active import or write operation suppresses hiding. Reopening it from the original menu preserves search, category, filters, sort, scroll, and selection state.
 - Require a non-negative integer quantity, show a specific warning for negative values, mark zero as depleted automatically, and allow depleted state changes in the same form.
 - Re-query the EDA library after a C-number change and present the new model properties as per-field suggestions without forcing them over user-maintained inventory data.
 - Compare an existing record with the pending edit before merging duplicate identities, and use record revisions to avoid overwriting newer cross-computer changes.
 - Reload the latest record before deletion and require an irreversible confirmation showing its name, part number, and quantity.
-- Import catalog-backed inventory parts into the personal library, detect parts already present in the personal or Favorites library, and use Favorites only as a best-effort target through the official BETA API.
-- Manage large inventories from a categorized overview: its primary search covers LCSC and supplier IDs, manufacturer part numbers, names, manufacturers, and packages; components can be dragged onto the two-level category tree, while separate top-level/child fields and Select all filtered results support controlled bulk classification.
+- Import catalog-backed inventory parts into the personal library, detect existing personal-library devices idempotently, and verify copied devices by reading them back instead of treating Favorites or an unverified API return as success.
+- Manage large inventories from a categorized overview whose primary search covers LCSC and supplier IDs, manufacturer part numbers, names, manufacturers, and packages. The sidebar separates system and two-level user categories; rows and selected groups can be dragged directly onto a category.
+- Explicitly and idempotently import the two-level category tree from a personal or Favorites library without moving inventory items automatically. When the full tree API is unavailable, fall back to categories already used by library devices and warn that empty categories may be omitted.
 - Rank exact search matches above prefixes and partial matches, then prefer in-stock items among equally relevant results. Search belongs to the overview itself and is never presented as a menu command or virtual component.
 - Select an in-stock part and attach it to the pointer for schematic placement.
 - Batch-import LCSC order-detail `.xls`/`.xlsx` files from one multi-field window that sets the default state and duplicate strategy together, previews every file and expected inventory change, and reports parsing, model matching, and write progress. Order numbers and SHA-256 fingerprints prevent repeated imports while CSV/JSON remain supported.
@@ -38,10 +39,11 @@ GitHub can host source code, CI builds, and release files, but it cannot act dir
 
 ## Installation
 
-1. Download `jlceda-inventory_v0.4.3.eext` from a Release or CI artifact.
+1. Download `jlceda-inventory_v0.4.12.eext` from a Release or CI artifact.
 2. Open JLCEDA Professional V3.
 3. Go to "Advanced -> Extension Manager -> Import" and select the `.eext` file.
-4. Start from the "Component Inventory" menu in the top navigation.
+4. Enable the extension under Installed; enable "Show in top menu" to keep its entry in the top row.
+5. Open Inventory overview or another command from the grouped "Component Inventory" top menu. The extension does not register a separate top-level shortcut.
 
 ## Development
 
@@ -88,7 +90,7 @@ See the [documentation index](docs/README.md), [architecture](docs/architecture.
 
 - JLCEDA currently provides no public marketplace-order API, so orders are imported from LCSC Excel order-detail exports or user-prepared CSV/JSON files.
 - The supported LCSC product API requires approved credentials, request signing, and IP authorization, while marketplace pages do not allow cross-origin reads from extensions. The no-server build therefore opens the official marketplace for user confirmation only when EDA-model lookup is missing or fails; it does not scrape pages or claim automatic marketplace retrieval.
-- `LIB_Device`, `LIB_Device.copy()`, file selection, and pointer placement are official BETA APIs. They are isolated in the platform layer and still require validation in both Web and Desktop clients.
+- `LIB_Device`, `LIB_Device.copy()`, library-category reads, file selection, and pointer placement are official BETA APIs. They are isolated in the platform layer and still require validation in both Web and Desktop clients; when the full classification tree is unavailable, import can only discover categories used by devices.
 - The unified create form and inventory overview use the official IFrame, extension user-configuration, and timer APIs. Requests, operations, and responses are session-scoped and temporary data is removed on completion. Because the IFrame API remains BETA, startup failures are reported explicitly instead of silently switching to a different sequential-input workflow; both Web and Desktop clients still require testing before release.
 - Successful pointer placement only means a component was attached to the pointer, not that the user completed placement, so inventory is not deducted automatically.
 

@@ -110,6 +110,31 @@ describe('inventory category document migration', () => {
 });
 
 describe('inventory category service', () => {
+	it('imports a two-level category tree atomically and idempotently', async () => {
+		const { repository, service } = createHarness();
+		await service.createCategory({ name: 'Passive' });
+
+		const first = await service.importCategories([
+			{ name: ' passive ', children: ['Resistors', 'resistors', 'Capacitors'] },
+			{ name: 'Connectors', children: ['Headers'] },
+		]);
+
+		expect(first).toEqual({ added: 4, skipped: 2 });
+		expect((await service.listCategories()).map(category => category.name)).toEqual([
+			'Passive',
+			'Resistors',
+			'Capacitors',
+			'Connectors',
+			'Headers',
+		]);
+		const saveCount = repository.saveCount;
+		expect(await service.importCategories([
+			{ name: 'Passive', children: ['Resistors', 'Capacitors'] },
+			{ name: 'Connectors', children: ['Headers'] },
+		])).toEqual({ added: 0, skipped: 5 });
+		expect(repository.saveCount).toBe(saveCount);
+	});
+
 	it('creates unique two-level categories and rejects missing or third-level parents', async () => {
 		const { repository, service } = createHarness();
 		const root = await service.createCategory({ name: ' Passive ' });

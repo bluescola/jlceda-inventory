@@ -2,6 +2,9 @@ import type { InventoryItem } from '../../src/features/inventory/domain/inventor
 import type { Translate } from '../../src/platform/jlceda-v3/eda/i18n-client';
 import type { InventoryOverviewIFrameHost } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-overview-panel';
 import type { InventoryOverviewViewState } from '../../src/platform/jlceda-v3/presentation/inventory-overview-panel';
+import type { DiagnosticTrace } from '../../src/platform/jlceda-v3/presentation/native-diagnostics';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	IFrameInventoryOverviewPanel,
@@ -12,6 +15,7 @@ import {
 	INVENTORY_OVERVIEW_REQUEST_KEY,
 	INVENTORY_OVERVIEW_RESPONSE_KEY,
 	INVENTORY_OVERVIEW_RESULT_KEY,
+	INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY,
 	parseIFrameInventoryOverviewOperationResponse,
 	parseIFrameInventoryOverviewRequest,
 	parseIFrameInventoryOverviewResult,
@@ -40,9 +44,17 @@ const item: InventoryItem = {
 		manufacturerPartNumber: 'MPN-1',
 		package: 'SMD',
 	},
+	marketplaceReference: {
+		provider: 'lcsc',
+		productUrl: 'https://www.szlcsc.com/C123.html',
+		evidence: 'user-confirmed',
+		confirmedAt: '2026-07-20T00:00:00.000Z',
+	},
 	edaModelReference: {
 		deviceUuid: 'device-1',
 		libraryUuid: 'library-1',
+		symbolName: 'MIC',
+		footprintName: 'MODEL-SMD',
 	},
 	edaModelStatus: 'available',
 	quantity: 12,
@@ -71,14 +83,17 @@ class FakeHost implements InventoryOverviewIFrameHost {
 
 	public readonly remove = vi.fn(async (key: string) => this.values.delete(key));
 	public readonly close = vi.fn(async () => true);
+	public readonly hide = vi.fn(async () => false);
+	public readonly show = vi.fn(async () => true);
 	public readonly stopPolling = vi.fn(() => true);
 	public readonly startPolling = vi.fn((_id: string, _interval: number, callback: () => void) => {
 		this.poll = callback;
 		return this.pollResult;
 	});
 
-	public readonly open = vi.fn(async (options: { title: string; onClose: () => void }) => {
+	public readonly open = vi.fn(async (options: { title: string; onClose: () => void; onWindowControl: (action: 'maximize' | 'minimize') => Promise<void> }) => {
 		this.onClose = options.onClose;
+		this.onWindowControl = options.onWindowControl;
 		return this.openResult;
 	});
 
@@ -87,6 +102,7 @@ class FakeHost implements InventoryOverviewIFrameHost {
 	public openResult = true;
 	public poll: () => void = () => undefined;
 	public onClose: () => void = () => undefined;
+	public onWindowControl: (action: 'maximize' | 'minimize') => Promise<void> = async () => undefined;
 
 	public read(key: string): unknown {
 		return this.values.get(key);
@@ -122,10 +138,26 @@ describe('iframe inventory overview protocol', () => {
 
 		expect(request).toMatchObject({
 			initialState,
-			items: [{ id: 'item-1', categoryId: 'child', hasEdaModel: true, revision: 4 }],
+			items: [{
+				id: 'item-1',
+				categoryId: 'child',
+				lcscPartNumber: 'C123',
+				package: 'SMD',
+				marketplaceEvidence: 'user-confirmed',
+				edaSymbol: 'MIC',
+				edaFootprint: 'MODEL-SMD',
+				hasEdaModel: true,
+				source: 'manual',
+				createdAt: '2026-07-20T00:00:00.000Z',
+				revision: 4,
+			}],
 			categories: [{ id: 'root' }, { id: 'child', parentId: 'root' }],
 		});
 		expect(request.labels.search).toBe('inventoryOverview.search');
+		expect(request.labels.systemCategories).toBe('inventoryOverview.systemCategories');
+		expect(request.labels.userCategories).toBe('inventoryOverview.userCategories');
+		expect(request.labels.importEdaCategories).toBe('categoryImport.title');
+		expect(request.labels.copyLcscPartNumber).toBe('inventoryOverview.copyLcscPartNumber');
 		expect(parseIFrameInventoryOverviewRequest({ ...request, protocolVersion: 1 })).toBeUndefined();
 		expect(parseIFrameInventoryOverviewRequest({
 			...request,
@@ -136,6 +168,10 @@ describe('iframe inventory overview protocol', () => {
 				sortOrder: 0,
 				revision: 1,
 			}],
+		})).toBeUndefined();
+		expect(parseIFrameInventoryOverviewRequest({
+			...request,
+			items: [{ ...request.items[0], source: 'invalid' }],
 		})).toBeUndefined();
 
 		host.onClose();
@@ -173,10 +209,165 @@ describe('iframe inventory overview protocol', () => {
 			},
 		}, 'request-1')).toBeUndefined();
 		expect(parseIFrameInventoryOverviewResult(valid, 'stale-request')).toBeUndefined();
+		const importCategories = {
+			...valid,
+			operation: {
+				operationId: 'operation-import-categories',
+				intent: { type: 'import-eda-categories', viewState: initialState },
+			},
+		};
+		expect(parseIFrameInventoryOverviewResult(importCategories, 'request-1')).toEqual(importCategories);
+	});
+});
+
+describe('inventory overview category manager markup', () => {
+	it('does not use eager HTML autofocus before the EDA host settles focus', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+
+		expect(html).toMatch(/<input[^>]+id="search-input"/);
+		expect(html).not.toMatch(/<input[^>]+id="search-input"[^>]+autofocus/);
+	});
+
+	it('places the EDA category import command in the category manager footer', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+		const managerStart = html.indexOf('id="category-manager-backdrop"');
+		const managerEnd = html.indexOf('id="operation-backdrop"');
+		const manager = html.slice(managerStart, managerEnd);
+
+		expect(managerStart).toBeGreaterThanOrEqual(0);
+		expect(managerEnd).toBeGreaterThan(managerStart);
+		expect(manager).toContain('id="category-manager-status"');
+		expect(manager).toContain('id="import-eda-categories"');
+		expect(manager.indexOf('id="import-eda-categories"')).toBeLessThan(manager.indexOf('id="category-manager-close"'));
 	});
 });
 
 describe('iframeInventoryOverviewPanel', () => {
+	it('replaces a stale host iframe before opening a session from a new controller instance', async () => {
+		const host = new FakeHost();
+		host.hide.mockResolvedValueOnce(true);
+		host.values.set(INVENTORY_OVERVIEW_REQUEST_KEY, { stale: true });
+		const panel = new IFrameInventoryOverviewPanel(t, host);
+		const pending = panel.open({ items: [item], categories: [] }, vi.fn());
+
+		await vi.waitFor(() => expect(host.close).toHaveBeenCalledTimes(1));
+		expect(host.open).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(500);
+		const request = await requestFrom(host);
+		expect(request.items).toHaveLength(1);
+		expect(host.hide).toHaveBeenCalledTimes(1);
+		expect(host.open).toHaveBeenCalledTimes(1);
+
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+		expect(host.close).toHaveBeenCalledTimes(2);
+	});
+
+	it('prevents a retired controller from cleaning up its replacement session', async () => {
+		const host = new FakeHost();
+		const oldPanel = new IFrameInventoryOverviewPanel(t, host);
+		const oldPending = oldPanel.open({ items: [item], categories: [] }, vi.fn());
+		const oldRequest = await requestFrom(host);
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: oldRequest.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		const pollOldSession = host.poll;
+
+		host.hide.mockResolvedValueOnce(true);
+		const newPanel = new IFrameInventoryOverviewPanel(t, host);
+		const newPending = newPanel.open({ items: [], categories: [] }, vi.fn());
+		await vi.waitFor(() => expect(host.close).toHaveBeenCalledTimes(1));
+		await vi.advanceTimersByTimeAsync(500);
+		const newRequest = await requestFrom(host);
+		const closeNewSession = host.onClose;
+		expect(newRequest.requestId).not.toBe(oldRequest.requestId);
+
+		pollOldSession();
+		await vi.advanceTimersByTimeAsync(500);
+		expect(await oldPending).toBeUndefined();
+		expect(parseIFrameInventoryOverviewRequest(host.values.get(INVENTORY_OVERVIEW_REQUEST_KEY))?.requestId)
+			.toBe(newRequest.requestId);
+		expect(host.close).toHaveBeenCalledTimes(1);
+
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: newRequest.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		closeNewSession();
+		expect(await settle(newPending)).toBeUndefined();
+		expect(host.close).toHaveBeenCalledTimes(2);
+	});
+
+	it('silently ends a ready session when the host storage context is unloaded', async () => {
+		const host = new FakeHost();
+		const trace = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			waitFor: vi.fn(),
+		} as unknown as DiagnosticTrace;
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [], categories: [] }, vi.fn(), trace);
+		const request = await requestFrom(host);
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		vi.spyOn(host, 'read').mockImplementation(() => {
+			throw new TypeError('The extension storage context is unavailable.');
+		});
+
+		host.poll();
+		await vi.advanceTimersByTimeAsync(500);
+
+		expect(await pending).toBeUndefined();
+		expect(trace.warn).toHaveBeenCalledWith('inventory-overview-panel.iframe.read.stopped', {
+			errorName: 'TypeError',
+			stage: 'ready',
+			status: 'host-unavailable',
+		});
+		expect(trace.error).not.toHaveBeenCalled();
+	});
+
+	it('shows an existing hidden session instead of queueing another overview', async () => {
+		const host = new FakeHost();
+		const panel = new IFrameInventoryOverviewPanel(t, host);
+		const pending = panel.open({ items: [item], categories: [] }, vi.fn());
+		await requestFrom(host);
+
+		await panel.open({ items: [], categories: [] }, vi.fn());
+
+		expect(host.show).toHaveBeenCalledTimes(1);
+		expect(host.hide).toHaveBeenCalledTimes(1);
+		expect(host.open).toHaveBeenCalledTimes(1);
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+	});
+
+	it('publishes native minimize actions so iframe blur does not hide the restore title window', async () => {
+		const host = new FakeHost();
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [item], categories: [] }, vi.fn());
+		const request = await requestFrom(host);
+		await vi.waitFor(() => expect(host.open).toHaveBeenCalledTimes(1));
+
+		await host.onWindowControl('minimize');
+
+		expect(host.values.get(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY)).toEqual({
+			action: 'minimize',
+			requestId: request.requestId,
+			timestamp: expect.any(Number),
+		});
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+		expect(host.values.has(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY)).toBe(false);
+	});
+
 	it('keeps the panel open while operations are handled and closes only on an explicit host close', async () => {
 		const host = new FakeHost();
 		const onOperation = vi.fn().mockResolvedValue({
@@ -243,5 +434,63 @@ describe('iframeInventoryOverviewPanel', () => {
 		expect(host.stopPolling).toHaveBeenCalledTimes(1);
 		expect(host.values.has(INVENTORY_OVERVIEW_REQUEST_KEY)).toBe(false);
 		expect(host.values.has(INVENTORY_OVERVIEW_RESULT_KEY)).toBe(false);
+	});
+
+	it('records the last render stage and error when the iframe fails before ready', async () => {
+		const host = new FakeHost();
+		const trace = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			waitFor: vi.fn(),
+		} as unknown as DiagnosticTrace;
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [], categories: [] }, vi.fn(), trace);
+		const request = await requestFrom(host);
+		await vi.waitFor(() => expect(host.open).toHaveBeenCalledTimes(1));
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'failed',
+			stage: 'request-read',
+			errorName: 'TypeError',
+			error: 'Failed to register an event listener.',
+		});
+		host.poll();
+
+		await vi.advanceTimersByTimeAsync(500);
+		await expect(pending).rejects.toMatchObject({ status: 'render-failed' });
+		expect(trace.error).toHaveBeenCalledWith('inventory-overview-panel.iframe.failed', {
+			error: 'Failed to register an event listener.',
+			errorName: 'TypeError',
+			stage: 'request-read',
+		});
+	});
+
+	it('records a distinct ready timeout with the last observed stage', async () => {
+		const host = new FakeHost();
+		const trace = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			waitFor: vi.fn(),
+		} as unknown as DiagnosticTrace;
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [], categories: [] }, vi.fn(), trace);
+		const request = await requestFrom(host);
+		await vi.waitFor(() => expect(host.open).toHaveBeenCalledTimes(1));
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'progress',
+			stage: 'request-read',
+		});
+		host.poll();
+
+		await vi.advanceTimersByTimeAsync(10_500);
+		host.poll();
+		await vi.advanceTimersByTimeAsync(500);
+		await expect(pending).rejects.toMatchObject({ status: 'render-failed' });
+		expect(trace.error).toHaveBeenCalledWith('inventory-overview-panel.iframe.ready.timeout', {
+			stage: 'request-read',
+		});
 	});
 });

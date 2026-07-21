@@ -12,24 +12,34 @@ import type {
 	InventoryOverviewViewState,
 } from '../../presentation/inventory-overview-panel';
 import {
+	INVENTORY_OVERVIEW_IFRAME_ID,
 	INVENTORY_OVERVIEW_PROTOCOL_VERSION,
 	INVENTORY_OVERVIEW_REQUEST_KEY,
 	INVENTORY_OVERVIEW_RESPONSE_KEY,
 	INVENTORY_OVERVIEW_RESULT_KEY,
+	INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY,
 	parseIFrameInventoryOverviewOperationResponse,
 	parseIFrameInventoryOverviewRequest,
 } from '../../presentation/iframe-inventory-overview-protocol';
 import {
+	captureInventoryOverviewScroll,
 	filterAndSortInventory,
 	inventoryCategoryCounts,
+	inventoryItemsForCategoryDrop,
+	inventoryItemsForDrag,
+	inventoryOverviewLcscPartNumber,
+	inventoryOverviewPackageLabel,
 	normalizeOverviewViewState,
 	orderedCategorySiblings,
 	paginateInventory,
 	reorderCategorySiblings,
 	reorderCategorySiblingsByDrop,
 	resolveBulkCategoryTarget,
-	resolveInventoryItemDropCategory,
+	restoreInventoryOverviewScroll,
+	selectInventoryOverviewCategory,
+	shouldAutoHideInventoryOverview,
 	shouldClearAppliedSearch,
+	shouldSuppressAutoHideForWindowControl,
 	updateFilteredInventorySelection,
 } from './inventory-overview-model';
 
@@ -57,6 +67,8 @@ interface PanelElements {
 	categoryManagerCloseIcon: HTMLButtonElement;
 	categoryManagerClose: HTMLButtonElement;
 	categoryManagerError: HTMLElement;
+	categoryManagerStatus: HTMLElement;
+	importEdaCategories: HTMLButtonElement;
 	addRootCategory: HTMLButtonElement;
 	renameRootCategory: HTMLButtonElement;
 	moveRootUp: HTMLButtonElement;
@@ -103,7 +115,7 @@ interface PendingOperation {
 	id: string;
 	intent: InventoryOverviewIntent;
 	trigger?: HTMLElement;
-	onSucceeded?: () => void;
+	onSucceeded?: (message?: string) => void;
 	onFailed?: (message: string) => void;
 }
 
@@ -191,8 +203,9 @@ function renderPanel(
 	const expandedRootIds = new Set<string>();
 	const itemDrag: InventoryItemDragState = {};
 	let pendingOperation: PendingOperation | undefined;
+	let autoHideArmed = false;
 	const ignoredOperationIds = new Set<string>();
-	let render = (): void => undefined;
+	let render = (_preserveTableScroll?: boolean): void => undefined;
 
 	localizeStaticElements(elements, labels);
 	populateSelects(elements, labels, state);
@@ -267,7 +280,8 @@ function renderPanel(
 			const item = request.items.find(candidate => candidate.id === action.item.id);
 			if (item) {
 				const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-				showOperationDialog(labels.viewItem, itemDetailsMessage(item, labels));
+				showOperationDialog(labels.viewItem, '');
+				showItemDetails(elements.operationMessage, item, request.categories, labels);
 				elements.operationCancel.hidden = false;
 				elements.operationRetry.hidden = true;
 				elements.operationConfirm.hidden = false;
@@ -306,7 +320,7 @@ function renderPanel(
 	};
 	const updateState = (patch: Partial<InventoryOverviewViewState>, resetPage = true): void => {
 		state = { ...state, ...patch, page: resetPage ? 1 : (patch.page ?? state.page) };
-		render();
+		render(false);
 	};
 	const closeCategoryDrawer = (): void => {
 		elements.categoryPanel.classList.remove('open');
@@ -325,6 +339,7 @@ function renderPanel(
 		}
 		categoryEdit = undefined;
 		elements.categoryManagerError.hidden = true;
+		elements.categoryManagerStatus.hidden = true;
 		elements.categoryManagerBackdrop.hidden = false;
 		render();
 		setTimeout(() => elements.categoryManagerCloseIcon.focus(), 0);
@@ -335,7 +350,11 @@ function renderPanel(
 		elements.toggleCategoryManagement.focus();
 	};
 
-	render = (): void => {
+	render = (preserveTableScroll = true): void => {
+		const tableScroll = elements.rows.closest<HTMLElement>('.table-scroll');
+		const scrollPosition = preserveTableScroll
+			? captureInventoryOverviewScroll(tableScroll)
+			: undefined;
 		const filtered = filterAndSortInventory(request.items, request.categories, state);
 		const filteredIds = new Set(filtered.map(item => item.id));
 		selectedIds = new Set(Array.from(selectedIds).filter(id => filteredIds.has(id)));
@@ -349,7 +368,14 @@ function renderPanel(
 			state,
 			expandedRootIds,
 			closeCategoryDrawer,
-			updateState,
+			(categoryId) => {
+				state = selectInventoryOverviewCategory(
+					state,
+					categoryId,
+					elements.sort.value as InventoryOverviewViewState['sort'],
+				);
+				render(false);
+			},
 			render,
 		);
 		renderCategoryManager(elements, request, labels, {
@@ -360,6 +386,7 @@ function renderPanel(
 			setEdit: (value) => {
 				categoryEdit = value;
 				elements.categoryManagerError.hidden = true;
+				elements.categoryManagerStatus.hidden = true;
 				render();
 			},
 			setSelectedChild: (value) => {
@@ -405,6 +432,7 @@ function renderPanel(
 		elements.modelFilter.value = state.modelFilter;
 		elements.sort.value = state.sort;
 		elements.searchScope.value = state.searchScope;
+		restoreInventoryOverviewScroll(tableScroll, scrollPosition);
 	};
 
 	elements.searchForm.addEventListener('submit', (event) => {
@@ -462,9 +490,41 @@ function renderPanel(
 	elements.closeCategories.addEventListener('click', closeCategoryDrawer);
 	elements.categoryOverlay.addEventListener('click', closeCategoryDrawer);
 	elements.toggleCategoryManagement.addEventListener('click', openCategoryManager);
+	elements.importEdaCategories.addEventListener('click', () => {
+		categoryEdit = undefined;
+		elements.categoryManagerError.hidden = true;
+		elements.categoryManagerStatus.hidden = true;
+		render();
+		requestIntent({ type: 'import-eda-categories' }, {
+			onFailed: (message) => {
+				elements.categoryManagerError.textContent = message;
+				elements.categoryManagerError.hidden = false;
+			},
+			onSucceeded: (message) => {
+				elements.categoryManagerStatus.textContent = message ?? labels.importEdaCategories;
+				elements.categoryManagerStatus.hidden = false;
+			},
+		});
+	});
 	elements.categoryManagerClose.addEventListener('click', closeCategoryManager);
 	elements.categoryManagerCloseIcon.addEventListener('click', closeCategoryManager);
 	elements.categoryManagerBackdrop.addEventListener('click', event => event.target === elements.categoryManagerBackdrop ? closeCategoryManager() : undefined);
+	window.addEventListener('blur', () => {
+		const operationWasPending = Boolean(pendingOperation);
+		window.setTimeout(() => {
+			const windowControl = eda.sys_Storage.getExtensionUserConfig(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY);
+			if (typeof eda.sys_IFrame?.hideIFrame !== 'function'
+				|| shouldSuppressAutoHideForWindowControl(windowControl, request.requestId, Date.now())
+				|| !shouldAutoHideInventoryOverview(
+					autoHideArmed,
+					operationWasPending || Boolean(pendingOperation),
+					document.visibilityState === 'visible',
+				)) {
+				return;
+			}
+			void eda.sys_IFrame.hideIFrame(INVENTORY_OVERVIEW_IFRAME_ID).catch(() => undefined);
+		}, 250);
+	});
 	elements.operationCancel.addEventListener('click', () => {
 		if (pendingOperation?.id) {
 			ignoredOperationIds.add(pendingOperation.id);
@@ -494,16 +554,11 @@ function renderPanel(
 		}
 		pendingOperation = undefined;
 		const result = response.result;
-		const tableScroll = elements.rows.closest('.table-scroll');
-		const scrollTop = tableScroll?.scrollTop ?? 0;
 		if ('snapshot' in result && result.snapshot) {
 			request.categories = result.snapshot.categories;
 			request.items = result.snapshot.items;
 			state = normalizeOverviewViewState(state, request.categories);
 			render();
-			if (tableScroll) {
-				tableScroll.scrollTop = scrollTop;
-			}
 		}
 		if (result.status === 'model-match') {
 			const match = result;
@@ -578,7 +633,7 @@ function renderPanel(
 		}
 		closeOperationDialog(false);
 		if (result.status === 'succeeded') {
-			active.onSucceeded?.();
+			active.onSucceeded?.(result.message);
 		}
 		active.trigger?.focus();
 	}, 100);
@@ -598,7 +653,12 @@ function renderPanel(
 	elements.shell.setAttribute('aria-busy', 'false');
 	elements.bootStatus.hidden = true;
 	elements.app.hidden = false;
-	render();
+	render(false);
+	window.setTimeout(() => {
+		window.focus();
+		elements.searchInput.focus({ preventScroll: true });
+		autoHideArmed = true;
+	}, 300);
 }
 
 function renderCategoryTree(
@@ -607,11 +667,17 @@ function renderCategoryTree(
 	state: InventoryOverviewViewState,
 	expandedRootIds: Set<string>,
 	closeDrawer: () => void,
-	updateState: (patch: Partial<InventoryOverviewViewState>) => void,
+	selectCategory: (categoryId: InventoryOverviewViewState['categoryId']) => void,
 	render: () => void,
 ): void {
 	const counts = inventoryCategoryCounts(request.items, request.categories);
 	const nodes: HTMLElement[] = [];
+	const createSectionHeading = (label: string): HTMLElement => {
+		const heading = document.createElement('h3');
+		heading.className = 'category-section-heading';
+		heading.textContent = label;
+		return heading;
+	};
 	const createNode = (id: string, name: string, child = false): HTMLButtonElement => {
 		const button = document.createElement('button');
 		button.type = 'button';
@@ -626,20 +692,28 @@ function renderCategoryTree(
 		button.append(nameElement, count);
 		return button;
 	};
+	const systemNodes: HTMLElement[] = [];
 	for (const [id, name] of [
 		['all', request.labels.allCategories],
 		['unclassified', request.labels.unclassified],
 	] as const) {
 		const button = createNode(id, name);
 		button.addEventListener('click', () => {
-			updateState({ categoryId: id });
+			selectCategory(id);
 			closeDrawer();
 		});
 		if (id === 'unclassified') {
 			configureInventoryItemDropTarget(button, undefined, name, request.labels);
 		}
-		nodes.push(button);
+		systemNodes.push(button);
 	}
+	const systemSection = document.createElement('section');
+	systemSection.className = 'category-section system-category-section';
+	systemSection.append(createSectionHeading(request.labels.systemCategories), ...systemNodes);
+	nodes.push(systemSection);
+	const userSection = document.createElement('section');
+	userSection.className = 'category-section user-category-section';
+	userSection.append(createSectionHeading(request.labels.userCategories));
 	for (const parent of orderedCategorySiblings(request.categories)) {
 		const children = orderedCategorySiblings(request.categories, parent.id);
 		const hasHiddenChildren = children.length > 3;
@@ -660,7 +734,7 @@ function renderCategoryTree(
 					expandedRootIds.add(parent.id);
 				}
 			}
-			updateState({ categoryId: parent.id });
+			selectCategory(parent.id);
 			if (!hasHiddenChildren) {
 				closeDrawer();
 			}
@@ -677,7 +751,7 @@ function renderCategoryTree(
 				if (expanded) {
 					expandedRootIds.delete(parent.id);
 					if (selectedHiddenChild) {
-						updateState({ categoryId: parent.id });
+						selectCategory(parent.id);
 						return;
 					}
 				}
@@ -695,23 +769,23 @@ function renderCategoryTree(
 			rootRow.append(rootButton, placeholder);
 		}
 		group.append(rootRow);
-		const visibleChildren = expanded ? children : children.slice(0, 3);
-		if (visibleChildren.length > 0) {
+		if (children.length > 0) {
 			const childList = document.createElement('div');
 			childList.className = 'category-children';
-			for (const child of visibleChildren) {
+			for (const child of children) {
 				const childButton = createNode(child.id, child.name, true);
 				configureInventoryItemDropTarget(childButton, child.id, child.name, request.labels);
 				childButton.addEventListener('click', () => {
-					updateState({ categoryId: child.id });
+					selectCategory(child.id);
 					closeDrawer();
 				});
 				childList.append(childButton);
 			}
 			group.append(childList);
 		}
-		nodes.push(group);
+		userSection.append(group);
 	}
+	nodes.push(userSection);
 	elements.categoryTree.replaceChildren(...nodes);
 }
 
@@ -1060,16 +1134,17 @@ function renderRows(
 		dragHandle.textContent = '\u28FF';
 		dragHandle.title = labels.dragItem;
 		dragHandle.setAttribute('aria-label', `${labels.dragItem}: ${item.name}`);
-		dragHandle.addEventListener('pointerdown', (event) => {
-			if (!event.isPrimary || event.button !== 0) {
+		const beginDrag = (event: PointerEvent, captureTarget: HTMLElement): void => {
+			if (event.isPrimary === false || event.button !== 0) {
 				return;
 			}
 			event.preventDefault();
 			clearInventoryItemDrag(dragState);
+			const dragItems = inventoryItemsForDrag(item, selectedIds, request.items);
 			dragState.item = item;
 			dragState.pointerId = event.pointerId;
 			dragState.sourceRow = row;
-			dragState.captureTarget = dragHandle;
+			dragState.captureTarget = captureTarget;
 			row.classList.add('inventory-row-dragging');
 			document.body.classList.add('inventory-item-dragging');
 			if (window.matchMedia('(max-width: 820px)').matches) {
@@ -1077,6 +1152,7 @@ function renderRows(
 			}
 			const preview = createInventoryItemDragPreview(
 				item,
+				dragItems.length,
 				categories.get(item.categoryId ?? '') ?? labels.unclassified,
 				labels,
 			);
@@ -1085,7 +1161,7 @@ function renderRows(
 			document.body.append(preview);
 			positionInventoryItemDragPreview(preview, event.clientX, event.clientY);
 			try {
-				dragHandle.setPointerCapture(event.pointerId);
+				captureTarget.setPointerCapture(event.pointerId);
 			}
 			catch {
 				// Pointer capture is unavailable in some EDA embedded browser builds.
@@ -1098,7 +1174,7 @@ function renderRows(
 				if (dragState.preview) {
 					positionInventoryItemDragPreview(dragState.preview, moveEvent.clientX, moveEvent.clientY);
 				}
-				const target = inventoryItemDropTargetAt(moveEvent.clientX, moveEvent.clientY, item);
+				const target = inventoryItemDropTargetAt(moveEvent.clientX, moveEvent.clientY, dragItems);
 				clearInventoryItemDropIndicators();
 				target?.classList.add('inventory-item-drop-active');
 			};
@@ -1107,17 +1183,14 @@ function renderRows(
 					return;
 				}
 				upEvent.preventDefault();
-				const target = inventoryItemDropTargetAt(upEvent.clientX, upEvent.clientY, item);
+				const target = inventoryItemDropTargetAt(upEvent.clientX, upEvent.clientY, dragItems);
 				if (target) {
-					const category = resolveInventoryItemDropCategory(item.categoryId, target.dataset.categoryId ?? '');
-					if (!category.valid) {
-						clearInventoryItemDrag(dragState);
-						return;
-					}
+					const targetCategoryValue = target.dataset.categoryId ?? '';
+					const movingItems = inventoryItemsForCategoryDrop(dragItems, targetCategoryValue);
 					finishIntent({
 						type: 'move-items',
-						items: [{ id: item.id, expectedRevision: item.revision }],
-						categoryId: category.categoryId,
+						items: movingItems.map(moving => ({ id: moving.id, expectedRevision: moving.revision })),
+						categoryId: targetCategoryValue || undefined,
 					});
 					if (window.matchMedia('(max-width: 820px)').matches) {
 						closeCategoryDrawer();
@@ -1141,6 +1214,18 @@ function renderRows(
 				document.removeEventListener('pointercancel', handleCancel, true);
 				window.removeEventListener('blur', handleWindowBlur);
 			};
+		};
+		dragHandle.addEventListener('pointerdown', (event) => {
+			event.stopPropagation();
+			beginDrag(event, dragHandle);
+		});
+		row.addEventListener('pointerdown', (event) => {
+			const target = event.target;
+			if (!(target instanceof Element)
+				|| target.closest('button, input, select, textarea, a, .select-column, .row-actions')) {
+				return;
+			}
+			beginDrag(event, row);
 		});
 		const nameButton = document.createElement('button');
 		nameButton.type = 'button';
@@ -1155,6 +1240,7 @@ function renderRows(
 			selectCell,
 			nameCell,
 			textCell(item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId, labels.emptyValue),
+			textCell(inventoryOverviewPackageLabel(item), labels.emptyValue),
 			textCell(categories.get(item.categoryId ?? '') ?? labels.unclassified),
 			statusCell(quantityLabel(item, labels), `stock-${item.state}`),
 			textCell(item.location, labels.emptyValue),
@@ -1184,6 +1270,7 @@ function renderRows(
 
 function createInventoryItemDragPreview(
 	item: InventoryOverviewItemSnapshot,
+	itemCount: number,
 	categoryName: string,
 	labels: InventoryOverviewLabels,
 ): HTMLElement {
@@ -1191,8 +1278,14 @@ function createInventoryItemDragPreview(
 	preview.className = 'inventory-drag-preview';
 	const title = document.createElement('strong');
 	title.textContent = item.name;
+	preview.append(title);
+	if (itemCount > 1) {
+		const selectionSummary = document.createElement('small');
+		selectionSummary.className = 'inventory-drag-selection-summary';
+		selectionSummary.textContent = formatLabel(labels.selectedCount, { count: itemCount });
+		preview.append(selectionSummary);
+	}
 	preview.append(
-		title,
 		dragPreviewRow(labels.columnNumber, item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId || labels.emptyValue),
 		dragPreviewRow(labels.columnQuantity, quantityLabel(item, labels)),
 		dragPreviewRow(labels.columnCategory, categoryName),
@@ -1248,14 +1341,14 @@ function positionInventoryItemDragPreview(preview: HTMLElement, clientX: number,
 function inventoryItemDropTargetAt(
 	clientX: number,
 	clientY: number,
-	item: InventoryOverviewItemSnapshot,
+	items: readonly InventoryOverviewItemSnapshot[],
 ): HTMLButtonElement | undefined {
 	const hovered = document.elementFromPoint(clientX, clientY);
 	const target = hovered?.closest<HTMLButtonElement>('.inventory-item-drop-target');
 	if (!target) {
 		return undefined;
 	}
-	return resolveInventoryItemDropCategory(item.categoryId, target.dataset.categoryId ?? '').valid
+	return inventoryItemsForCategoryDrop(items, target.dataset.categoryId ?? '').length > 0
 		? target
 		: undefined;
 }
@@ -1395,6 +1488,7 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	setText('category-heading-label', labels.title);
 	elements.toggleCategoryManagement.textContent = labels.manageCategories;
 	setText('category-manager-title', labels.manageCategories);
+	elements.importEdaCategories.textContent = labels.importEdaCategories;
 	setText('root-category-heading', labels.addRootCategory);
 	setText('child-category-heading', labels.addChildCategory);
 	elements.categoryManagerClose.textContent = labels.cancel;
@@ -1412,6 +1506,7 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	elements.selectPage.setAttribute('aria-label', labels.selectAll);
 	setText('column-name', labels.columnName);
 	setText('column-number', labels.columnNumber);
+	setText('column-package', labels.package);
 	setText('column-category', labels.columnCategory);
 	setText('column-quantity', labels.columnQuantity);
 	setText('column-location', labels.columnLocation);
@@ -1511,20 +1606,143 @@ function actionTitle(action: InventoryOverviewAction, labels: InventoryOverviewL
 		case 'rename-category': return labels.renameCategory;
 		case 'delete-category': return labels.deleteCategory;
 		case 'reorder-categories': return action.parentId ? labels.addChildCategory : labels.manageCategories;
+		case 'import-eda-categories': return labels.importEdaCategories;
 		case 'move-items': return labels.moveToCategory;
 		case 'refresh': return labels.refresh;
 	}
 }
 
-function itemDetailsMessage(item: InventoryOverviewItemSnapshot, labels: InventoryOverviewLabels): string {
+function showItemDetails(
+	target: HTMLElement,
+	item: InventoryOverviewItemSnapshot,
+	categories: readonly InventoryOverviewCategorySnapshot[],
+	labels: InventoryOverviewLabels,
+): void {
+	const details = document.createElement('dl');
+	details.className = 'overview-details-list';
+	const copyStatus = document.createElement('p');
+	copyStatus.className = 'overview-copy-status';
+	copyStatus.setAttribute('aria-live', 'polite');
+	const lcscPartNumber = inventoryOverviewLcscPartNumber(item);
+	for (const [label, value, key] of inventoryItemDetailRows(item, categories, labels)) {
+		const term = document.createElement('dt');
+		term.textContent = label;
+		const detail = document.createElement('dd');
+		if (key === 'lcscPartNumber' && lcscPartNumber) {
+			const code = document.createElement('code');
+			code.className = 'overview-lcsc-number';
+			code.textContent = lcscPartNumber;
+			const copy = document.createElement('button');
+			copy.type = 'button';
+			copy.className = 'button button-secondary overview-copy-button';
+			copy.textContent = labels.copyLcscPartNumber;
+			copy.addEventListener('click', async () => {
+				copy.disabled = true;
+				const copied = await copyOverviewText(lcscPartNumber);
+				copy.disabled = false;
+				copyStatus.textContent = copied ? labels.copySucceeded : labels.copyFailed;
+			});
+			detail.className = 'overview-copy-value';
+			detail.append(code, copy);
+		}
+		else {
+			detail.textContent = value;
+		}
+		details.append(term, detail);
+	}
+	target.replaceChildren(details, copyStatus);
+}
+
+function inventoryItemDetailRows(
+	item: InventoryOverviewItemSnapshot,
+	categories: readonly InventoryOverviewCategorySnapshot[],
+	labels: InventoryOverviewLabels,
+): Array<[label: string, value: string, key?: 'lcscPartNumber']> {
+	const category = item.categoryId ? categories.find(candidate => candidate.id === item.categoryId) : undefined;
+	const parentCategory = category?.parentId
+		? categories.find(candidate => candidate.id === category.parentId)
+		: undefined;
+	const categoryLabel = category
+		? [parentCategory?.name, category.name].filter(Boolean).join(' / ')
+		: item.categoryId || labels.unclassified;
+	const precision = item.precision === 'exact'
+		? labels.exact
+		: item.precision === 'estimated' ? labels.estimated : labels.quantityUnknown;
 	return [
-		`${labels.columnName}: ${item.name || labels.emptyValue}`,
-		`${labels.columnNumber}: ${item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId || labels.emptyValue}`,
-		`${labels.columnQuantity}: ${quantityLabel(item, labels)}`,
-		`${labels.columnLocation}: ${item.location || labels.emptyValue}`,
-		`${labels.columnModel}: ${modelLabel(item, labels)}`,
-		`${labels.columnUpdatedAt}: ${item.updatedAtLabel || labels.emptyValue}`,
-	].join('\n');
+		[labels.lcscPartNumber, inventoryOverviewLcscPartNumber(item) || '\u2014', 'lcscPartNumber'],
+		[labels.supplierId, item.supplierId || labels.emptyValue],
+		[labels.columnName, item.name || labels.emptyValue],
+		[labels.manufacturer, item.manufacturer || labels.emptyValue],
+		[labels.manufacturerPartNumber, item.manufacturerPartNumber || labels.emptyValue],
+		[labels.package, item.package || '\u2014'],
+		[labels.description, item.description || labels.emptyValue],
+		[labels.columnQuantity, quantityLabel(item, labels)],
+		[labels.precision, precision],
+		[labels.stockState, item.state === 'depleted' ? labels.depleted : labels.inStock],
+		[labels.columnCategory, categoryLabel],
+		[labels.columnLocation, item.location || labels.emptyValue],
+		[labels.note, item.note || labels.emptyValue],
+		[labels.marketplace, marketplaceLabel(item, labels)],
+		[labels.columnModel, modelLabel(item, labels)],
+		[labels.edaSymbol, item.edaSymbol || labels.emptyValue],
+		[labels.edaFootprint, item.edaFootprint || '\u2014'],
+		[labels.source, sourceLabel(item, labels)],
+		[labels.createdAt, item.createdAtLabel || labels.emptyValue],
+		[labels.columnUpdatedAt, item.updatedAtLabel || labels.emptyValue],
+		[labels.revision, String(item.revision)],
+	];
+}
+
+function itemDetailsMessage(item: InventoryOverviewItemSnapshot, labels: InventoryOverviewLabels): string {
+	return inventoryItemDetailRows(item, [], labels)
+		.map(([label, value]) => `${label}: ${value}`)
+		.join('\n');
+}
+
+function marketplaceLabel(item: InventoryOverviewItemSnapshot, labels: InventoryOverviewLabels): string {
+	if (item.marketplaceEvidence === 'order-import') {
+		return labels.marketplaceFromOrder;
+	}
+	if (item.marketplaceEvidence === 'user-confirmed') {
+		return labels.marketplaceUserConfirmed;
+	}
+	return inventoryOverviewLcscPartNumber(item) ? labels.marketplaceUnconfirmed : labels.marketplaceNotLinked;
+}
+
+function sourceLabel(item: InventoryOverviewItemSnapshot, labels: InventoryOverviewLabels): string {
+	switch (item.source) {
+		case 'catalog': return labels.sourceCatalog;
+		case 'marketplace': return labels.sourceMarketplace;
+		case 'order': return labels.sourceOrder;
+		case 'manual': return labels.sourceManual;
+	}
+}
+
+async function copyOverviewText(value: string): Promise<boolean> {
+	try {
+		if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(value);
+			return true;
+		}
+	}
+	catch {
+		// Embedded browser clipboard permissions vary; fall through to the selection-based API.
+	}
+	const input = document.createElement('textarea');
+	input.value = value;
+	input.readOnly = true;
+	input.className = 'overview-copy-fallback';
+	document.body.append(input);
+	input.select();
+	let copied = false;
+	try {
+		copied = document.execCommand('copy');
+	}
+	catch {
+		copied = false;
+	}
+	input.remove();
+	return copied;
 }
 
 function showOverviewEditor(
@@ -1821,6 +2039,8 @@ function getElements(): PanelElements {
 		categoryManagerCloseIcon: element('category-manager-close-icon', HTMLButtonElement),
 		categoryManagerClose: element('category-manager-close', HTMLButtonElement),
 		categoryManagerError: element('category-manager-error', HTMLElement),
+		categoryManagerStatus: element('category-manager-status', HTMLElement),
+		importEdaCategories: element('import-eda-categories', HTMLButtonElement),
 		addRootCategory: element('add-root-category', HTMLButtonElement),
 		renameRootCategory: element('rename-root-category', HTMLButtonElement),
 		moveRootUp: element('move-root-up', HTMLButtonElement),

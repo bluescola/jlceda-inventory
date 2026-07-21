@@ -2,6 +2,7 @@ import type { CommonLibrary } from '../../src/features/common-library/ports/comm
 import type { EdaModel, EdaModelCatalog } from '../../src/features/component-catalog/ports/component-catalog';
 import type { InventoryService } from '../../src/features/inventory/application/inventory-service';
 import type { InventoryItem, NewInventoryItem } from '../../src/features/inventory/domain/inventory-item';
+import type { EdaLibraryCategories } from '../../src/features/inventory/ports/eda-library-categories';
 import type { MarketplaceNavigator } from '../../src/features/marketplace-catalog/ports/marketplace-navigator';
 import type { EdaFileClient, PickedOrderFile } from '../../src/platform/jlceda-v3/eda/file-client';
 import type { Translate } from '../../src/platform/jlceda-v3/eda/i18n-client';
@@ -92,6 +93,7 @@ function createController(
 	pickedOrderFiles?: PickedOrderFile[],
 	openCreatePanel?: InventoryCreatePanel['open'],
 	openOrderImportPanel?: OrderImportPanel['open'],
+	edaLibraryCategories?: EdaLibraryCategories,
 ) {
 	const add = vi.fn().mockImplementation(async (input: NewInventoryItem) => normalizeInventoryItem(
 		input,
@@ -175,6 +177,7 @@ function createController(
 		deleteCategory: vi.fn(),
 		reorderCategories: vi.fn(),
 		moveItemsToCategory: vi.fn(),
+		importCategories: vi.fn().mockResolvedValue({ added: 0, skipped: 0 }),
 		attachEdaModel: vi.fn(),
 		exportDocument: vi.fn(async () => ({
 			schemaVersion: 4 as const,
@@ -246,6 +249,10 @@ function createController(
 		{ openSearch, createReference } as MarketplaceNavigator,
 		{} as CommonLibrary,
 		files as unknown as EdaFileClient,
+		edaLibraryCategories ?? {
+			availableSources: vi.fn().mockResolvedValue([]),
+			read: vi.fn(),
+		} as EdaLibraryCategories,
 		{} as EdaPlacementClient,
 		dialog as unknown as NativeDialog,
 		diagnostics,
@@ -257,8 +264,108 @@ function createController(
 		((key: string) => key) as Translate,
 		'0.2.1',
 	);
-	return { add, controller, createReference, dialog, files, inventory, inventoryCreatePanel, inventoryItemPanel, inventoryOverviewPanel, openSearch, orderImportPanel, productDetailsForm, trace };
+	return { add, controller, createReference, diagnostics, dialog, files, inventory, inventoryCreatePanel, inventoryItemPanel, inventoryOverviewPanel, openSearch, orderImportPanel, productDetailsForm, trace };
 }
+
+describe('nativeInventoryController.importEdaCategories', () => {
+	it('imports explicit category structure without assigning inventory items', async () => {
+		const categories = {
+			availableSources: vi.fn().mockResolvedValue(['personal']),
+			read: vi.fn().mockResolvedValue({
+				status: 'available',
+				snapshot: {
+					source: 'personal',
+					discovery: 'device-scan',
+					complete: false,
+					categories: [{ name: 'Passive', children: ['Resistors'] }],
+				},
+			}),
+		} as EdaLibraryCategories;
+		const { controller, dialog, inventory } = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			categories,
+		);
+		inventory.importCategories.mockResolvedValue({ added: 2, skipped: 0 });
+
+		await controller.importEdaCategories();
+
+		expect(categories.read).toHaveBeenCalledWith('personal');
+		expect(dialog.confirm).toHaveBeenCalledWith('categoryImport.confirm', 'categoryImport.title');
+		expect(inventory.importCategories).toHaveBeenCalledWith([{ name: 'Passive', children: ['Resistors'] }]);
+		expect(inventory.moveItemsToCategory).not.toHaveBeenCalled();
+		expect(dialog.info).toHaveBeenCalledWith(
+			'categoryImport.completed\n\ncategoryImport.incomplete',
+			'categoryImport.title',
+		);
+	});
+
+	it('returns the refreshed category snapshot to an active inventory overview session', async () => {
+		const importedCategory = {
+			id: 'category-passive',
+			name: 'Passive',
+			sortOrder: 0,
+			createdAt: '2026-07-22T00:00:00.000Z',
+			updatedAt: '2026-07-22T00:00:00.000Z',
+			revision: 1,
+		};
+		const categories = {
+			availableSources: vi.fn().mockResolvedValue(['personal']),
+			read: vi.fn().mockResolvedValue({
+				status: 'available',
+				snapshot: {
+					source: 'personal',
+					discovery: 'classification-tree',
+					complete: true,
+					categories: [{ name: 'Passive', children: [] }],
+				},
+			}),
+		} as EdaLibraryCategories;
+		const context = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			categories,
+		);
+		context.inventory.importCategories.mockResolvedValue({ added: 1, skipped: 0 });
+		context.inventory.exportDocument
+			.mockResolvedValueOnce({ categories: [], items: [] })
+			.mockResolvedValueOnce({ categories: [importedCategory], items: [] });
+		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
+			const result = await onOperation({
+				operationId: 'operation-import-categories',
+				intent: { type: 'import-eda-categories', viewState: overviewViewState },
+			});
+			expect(result).toEqual({
+				status: 'succeeded',
+				message: 'categoryImport.completed',
+				snapshot: { categories: [importedCategory], items: [] },
+			});
+		});
+
+		await context.controller.openInventory();
+
+		expect(context.inventory.importCategories).toHaveBeenCalledWith([{ name: 'Passive', children: [] }]);
+		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledTimes(1);
+		expect(context.diagnostics.start).toHaveBeenCalledWith('inventory-overview', false);
+		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledWith(
+			expect.objectContaining({ categories: [], items: [] }),
+			expect.any(Function),
+			context.trace,
+		);
+		expect(context.diagnostics.flush).toHaveBeenCalledTimes(1);
+		expect(context.dialog.info).not.toHaveBeenCalledWith('categoryImport.completed');
+	});
+});
 
 describe('nativeInventoryController.addByLcscPartNumber', () => {
 	it('queries EDA and saves the bound model from the unified form', async () => {
@@ -535,7 +642,7 @@ describe('nativeInventoryController inventory management', () => {
 		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledWith({
 			items: [],
 			categories: [],
-		}, expect.any(Function));
+		}, expect.any(Function), context.trace);
 		expect(context.dialog.info).not.toHaveBeenCalledWith('inventory.empty');
 	});
 
@@ -566,7 +673,7 @@ describe('nativeInventoryController inventory management', () => {
 		expect(context.inventoryOverviewPanel.open).toHaveBeenNthCalledWith(1, expect.objectContaining({
 			items: [partial, depleted],
 			categories: [],
-		}), expect.any(Function));
+		}), expect.any(Function), context.trace);
 		expect(context.dialog.input).not.toHaveBeenCalled();
 		expect(context.inventoryItemPanel.view).toHaveBeenCalledWith(depleted);
 	});

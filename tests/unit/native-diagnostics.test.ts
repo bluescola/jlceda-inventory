@@ -66,6 +66,36 @@ describe('nativeDiagnostics', () => {
 		expect(showToastMessage).toHaveBeenCalledWith('diagnostics.opened', 'info', 3, 'log');
 	});
 
+	it('persists silent workflow traces without opening the host log panel', async () => {
+		let stored: DiagnosticLogDocument | undefined;
+		const openBottomPanel = vi.fn();
+		const showToastMessage = vi.fn();
+		vi.stubGlobal('eda', {
+			sys_Log: { add: vi.fn(), find: vi.fn().mockResolvedValue([]) },
+			sys_Message: { showToastMessage },
+			sys_PanelControl: { openBottomPanel },
+			sys_Storage: {
+				getExtensionUserConfig: vi.fn(() => stored),
+				setExtensionUserConfig: vi.fn(async (_key: string, value: DiagnosticLogDocument) => {
+					stored = value;
+					return true;
+				}),
+			},
+		});
+		const diagnostics = new NativeDiagnostics(t, '0.4.9', 'simplified');
+
+		diagnostics.start('inventory-overview', false);
+		await diagnostics.flush();
+
+		expect(openBottomPanel).not.toHaveBeenCalled();
+		expect(showToastMessage).not.toHaveBeenCalled();
+		expect(stored).toMatchObject({ extensionVersion: '0.4.9' });
+		expect(stored?.entries.at(-1)).toMatchObject({
+			operation: 'inventory-overview',
+			event: 'workflow.start',
+		});
+	});
+
 	it('records a warning when an SDK or dialog promise remains pending', async () => {
 		vi.useFakeTimers();
 		let finish!: (value: string) => void;
@@ -186,5 +216,38 @@ describe('nativeDiagnostics', () => {
 		});
 		expect(JSON.stringify(document)).not.toContain('Microphone');
 		expect(JSON.stringify(document)).not.toContain('Secret product title');
+	});
+
+	it('keeps non-sensitive common-library failure stages in simplified logs', async () => {
+		let stored: DiagnosticLogDocument | undefined;
+		vi.stubGlobal('eda', {
+			sys_Log: { add: vi.fn(), find: vi.fn().mockResolvedValue([]) },
+			sys_Message: { showToastMessage: vi.fn() },
+			sys_PanelControl: { openBottomPanel: vi.fn() },
+			sys_Storage: {
+				getExtensionUserConfig: vi.fn(() => stored),
+				setExtensionUserConfig: vi.fn(async (_key: string, value: DiagnosticLogDocument) => {
+					stored = value;
+					return true;
+				}),
+			},
+		});
+		const diagnostics = new NativeDiagnostics(t, '0.4.7', 'simplified');
+		const trace = diagnostics.start('copy-common');
+
+		trace.info('common-library.copy.result', {
+			attempts: 'personal:lookup-error,personal:copy-rejected',
+			deviceUuid: 'private-device-uuid',
+			reason: 'copy-rejected',
+			status: 'failed',
+		});
+		await diagnostics.flush();
+
+		const document = await diagnostics.exportDocument();
+		expect(document.entries.find(entry => entry.event === 'common-library.copy.result')?.details).toEqual({
+			attempts: 'personal:lookup-error,personal:copy-rejected',
+			reason: 'copy-rejected',
+			status: 'failed',
+		});
 	});
 });

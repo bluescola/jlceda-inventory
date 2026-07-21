@@ -1,6 +1,6 @@
 import type { EdaModelReference } from '../../inventory/domain/inventory-item';
 
-export type CommonLibraryTarget = 'favorite' | 'personal';
+export type CommonLibraryTarget = 'personal';
 
 export type CommonLibraryCopyAttemptStatus
 	= | 'already-present'
@@ -8,7 +8,8 @@ export type CommonLibraryCopyAttemptStatus
 		| 'copied'
 		| 'copy-rejected'
 		| 'lookup-error'
-		| 'unavailable';
+		| 'unavailable'
+		| 'verification-failed';
 
 export interface CommonLibraryCopyAttempt {
 	target: CommonLibraryTarget;
@@ -28,7 +29,7 @@ export type CommonLibraryCopyResult
 	}
 	| {
 		status: 'failed';
-		reason: 'api-error' | 'copy-rejected' | 'no-target-library';
+		reason: 'api-error' | 'copy-rejected' | 'no-target-library' | 'verification-failed';
 		attempts: CommonLibraryCopyAttempt[];
 	};
 

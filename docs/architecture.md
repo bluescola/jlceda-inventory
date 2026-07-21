@@ -56,7 +56,7 @@ src/index.ts
 
 “按立创 C 编号添加”和“添加自定义元器件”通过 `InventoryCreatePanel` 复用同一套身份、库存、分类、位置和备注表单。EDA 查询、商城导航、重复预览和最终合并由宿主操作处理器执行；浏览器表单只持有草稿和一次性令牌，不持有仓储写权限。正常入口不再串联数量、精度和位置的多个原生弹窗，也不在 IFrame 启动失败时静默切换成另一套输入语义。具体边界见[元器件统一添加表单与窗口层级边界](component-entry-boundary.md)。
 
-分类浏览、主搜索、组合筛选和分页使用长生命周期 `InventoryOverviewPanel`。分类管理在总览 IFrame 内采用左侧一级、右侧二级的模态窗口；详情、完整编辑、删除确认、重复比对和重新匹配 EDA 模型也由同一 DOM 模态栈承载，不依赖 V3 未提供的独立 IFrame 置顶能力。模型重匹配覆盖查询、结果确认、未命中、失败、重试和取消状态。具体交互边界见[库存总览、分类管理与子窗口边界](inventory-overview-boundary.md)。
+分类浏览、主搜索、组合筛选和分页使用长生命周期 `InventoryOverviewPanel`。分类管理在总览 IFrame 内采用左侧一级、右侧二级的模态窗口，并在该窗口提供 EDA 分类导入；详情、完整编辑、删除确认、重复比对和重新匹配 EDA 模型也由同一 DOM 模态栈承载，不依赖 V3 未提供的独立 IFrame 置顶能力。总览启用宿主原生最小化按钮，并在没有宿主操作执行时随 IFrame 失焦隐藏；临时操作 EDA 主窗口时不销毁总览会话。模型重匹配覆盖查询、结果确认、未命中、失败、重试和取消状态。具体交互边界见[库存总览、分类管理与子窗口边界](inventory-overview-boundary.md)。
 
 长会话适配器仍通过 `SYS_Storage` 交换带版本、请求作用域和操作 ID 的信封数据，并由 `SYS_Timer` 轮询请求与响应。普通业务意图不再是关闭 IFrame 的终态；适配器处理后把成功、取消、失败和最新快照返回同一总览会话，只有用户显式关闭总览才清理会话。分类和库存写入继续由应用服务执行 revision 校验，IFrame 不拥有仓储修改权限。详情与编辑优先在同一总览 IFrame 的模态承载层中复用现有模块；宿主并行 IFrame 只能在 Web 和桌面端实测可靠后作为可选实现，不能成为保持总览的必要条件。诊断只记录模式、字段名、长度、操作 ID 和结果类别。
 
@@ -64,11 +64,14 @@ src/index.ts
 
 官方主机构建产物仍是 SDK 兼容的单一 `dist/index.js` IIFE。独立构建步骤会把各浏览器模块编译为 IIFE，并将 CSS 内联到 `iframe/product-details.html`、`iframe/inventory-item.html`、`iframe/inventory-overview.html` 和 `iframe/inventory-create.html`。这些资源均为自包含文件，因此自定义 UI 不会改变官方主机入口配置，也不依赖嵌套资源解析。
 
+EDA 分类导入通过独立平台适配器读取当前工作区的个人库或收藏库。首选的完整分类树接口属于 BETA，且已被官方类型定义标记为弃用；接口不可用时只从库内器件返回的分类路径汇总已经使用的两级分类。导入由用户显式触发，在库存仓储中原子、幂等地创建缺失分类，不自动给库存条目归类，也不把该单向操作描述为持续同步。
+
 ## BETA API 隔离
 
 以下官方 API 视为不稳定接口，只能由平台适配层调用：
 
 - `LIB_Device.get/search/getByLcscIds/copy`
+- `LIB_Classification.getAllClassificationTree`（不可用时降级使用 `LIB_Device.search` 返回的已使用分类）
 - 用于打开官方商城的 `SYS_Window.open`
 - 用于商品与库存多字段面板的 `SYS_IFrame`、`SYS_Storage` 和 `SYS_Timer`
 - `SYS_FileSystem.openReadFileDialog`

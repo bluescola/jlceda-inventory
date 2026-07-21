@@ -4,6 +4,7 @@ import { EdaDeviceCatalog } from '../eda/device-catalog';
 import { EdaFileClient } from '../eda/file-client';
 import { translate } from '../eda/i18n-client';
 import { LcscMarketplaceNavigator } from '../eda/lcsc-marketplace-navigator';
+import { EdaLibraryCategoriesReader } from '../eda/library-categories';
 import { EdaPlacementClient } from '../eda/placement-client';
 import { EdaInventoryRepository } from '../persistence/eda-inventory-repository';
 import { IFrameInventoryCreatePanel } from '../presentation/iframe-inventory-create-panel';
@@ -33,6 +34,7 @@ export function createInventoryController(version: string): NativeInventoryContr
 		new LcscMarketplaceNavigator(),
 		new EdaCommonLibrary(),
 		new EdaFileClient(),
+		new EdaLibraryCategoriesReader(),
 		new EdaPlacementClient(),
 		dialog,
 		diagnostics,

@@ -72,6 +72,7 @@
 									<th class="select-column"><input id="select-page" type="checkbox"></th>
 									<th id="column-name"></th>
 									<th id="column-number"></th>
+									<th id="column-package"></th>
 									<th id="column-category"></th>
 									<th id="column-quantity"></th>
 									<th id="column-location"></th>
@@ -106,6 +107,7 @@
 					<button id="category-manager-close-icon" class="icon-button" type="button"></button>
 				</header>
 				<p id="category-manager-error" class="inline-error" role="alert" hidden></p>
+				<p id="category-manager-status" class="inline-status" role="status" hidden></p>
 				<div class="category-manager-columns">
 					<section class="category-manager-column">
 						<div class="category-manager-toolbar">
@@ -135,6 +137,7 @@
 					</section>
 				</div>
 				<footer class="dialog-actions">
+					<button id="import-eda-categories" class="button button-primary" type="button"></button>
 					<button id="category-manager-close" class="button button-secondary" type="button"></button>
 				</footer>
 			</section>

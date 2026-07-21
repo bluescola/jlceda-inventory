@@ -24,9 +24,77 @@ export interface InventoryOverviewResultSet {
 	pageCount: number;
 }
 
+export interface InventoryOverviewScrollPosition {
+	left: number;
+	top: number;
+}
+
+export interface InventoryOverviewScrollContainer {
+	scrollLeft: number;
+	scrollTop: number;
+}
+
 export type InventoryOverviewCategoryTarget
 	= | { valid: false }
 		| { valid: true; categoryId?: string };
+
+export function captureInventoryOverviewScroll(
+	container: InventoryOverviewScrollContainer | null | undefined,
+): InventoryOverviewScrollPosition | undefined {
+	return container ? { left: container.scrollLeft, top: container.scrollTop } : undefined;
+}
+
+export function restoreInventoryOverviewScroll(
+	container: InventoryOverviewScrollContainer | null | undefined,
+	position: InventoryOverviewScrollPosition | undefined,
+): void {
+	if (!container || !position) {
+		return;
+	}
+	container.scrollLeft = position.left;
+	container.scrollTop = position.top;
+}
+
+export function shouldAutoHideInventoryOverview(
+	autoHideArmed: boolean,
+	operationPending: boolean,
+	documentVisible: boolean,
+): boolean {
+	return autoHideArmed && !operationPending && documentVisible;
+}
+
+export function shouldSuppressAutoHideForWindowControl(
+	value: unknown,
+	requestId: string,
+	now: number,
+): boolean {
+	if (!value || typeof value !== 'object') {
+		return false;
+	}
+	const signal = value as Partial<{ action: string; requestId: string; timestamp: number }>;
+	return signal.requestId === requestId
+		&& (signal.action === 'maximize' || signal.action === 'minimize')
+		&& typeof signal.timestamp === 'number'
+		&& now >= signal.timestamp
+		&& now - signal.timestamp <= 1_000;
+}
+
+export function inventoryOverviewPackageLabel(item: Pick<InventoryOverviewItemSnapshot, 'edaFootprint' | 'package'>): string {
+	return item.package || item.edaFootprint || '\u2014';
+}
+
+export function inventoryOverviewLcscPartNumber(
+	item: Pick<InventoryOverviewItemSnapshot, 'lcscPartNumber' | 'supplierId'>,
+): string {
+	for (const candidate of [item.lcscPartNumber, item.supplierId]) {
+		const normalized = candidate.trim().toUpperCase();
+		const cNumber = /^\d+$/.test(normalized) ? `C${normalized}` : normalized;
+		if (/^C\d+$/.test(cNumber)) {
+			return cNumber;
+		}
+	}
+	return '';
+}
 
 export function resolveInventoryItemDropCategory(
 	currentCategoryId: string | undefined,
@@ -34,6 +102,25 @@ export function resolveInventoryItemDropCategory(
 ): InventoryOverviewCategoryTarget {
 	const categoryId = targetCategoryValue || undefined;
 	return currentCategoryId === categoryId ? { valid: false } : { valid: true, categoryId };
+}
+
+export function inventoryItemsForDrag(
+	source: InventoryOverviewItemSnapshot,
+	selectedIds: ReadonlySet<string>,
+	items: readonly InventoryOverviewItemSnapshot[],
+): InventoryOverviewItemSnapshot[] {
+	if (!selectedIds.has(source.id)) {
+		return [source];
+	}
+	return [source, ...items.filter(item => item.id !== source.id && selectedIds.has(item.id))];
+}
+
+export function inventoryItemsForCategoryDrop(
+	items: readonly InventoryOverviewItemSnapshot[],
+	targetCategoryValue: string,
+): InventoryOverviewItemSnapshot[] {
+	const categoryId = targetCategoryValue || undefined;
+	return items.filter(item => item.categoryId !== categoryId);
 }
 
 export function resolveBulkCategoryTarget(
@@ -83,6 +170,19 @@ export function normalizeOverviewViewState(
 	return state;
 }
 
+export function selectInventoryOverviewCategory(
+	state: InventoryOverviewViewState,
+	categoryId: InventoryOverviewViewState['categoryId'],
+	currentSort: InventoryOverviewViewState['sort'],
+): InventoryOverviewViewState {
+	return {
+		...state,
+		categoryId,
+		page: 1,
+		sort: currentSort,
+	};
+}
+
 export function filterAndSortInventory(
 	items: readonly InventoryOverviewItemSnapshot[],
 	categories: readonly InventoryOverviewCategorySnapshot[],
@@ -102,8 +202,7 @@ export function filterAndSortInventory(
 		if (state.query.trim()) {
 			return searched;
 		}
-		const categoryRanks = inventoryCategoryRanks(categories);
-		return searched.sort((left, right) => compareOverviewDefault(left, right, categoryRanks));
+		return searched.sort(compareOverviewDefault);
 	}
 	const categoryRanks = inventoryCategoryRanks(categories);
 	return searched.sort((left, right) => compareItems(left, right, state, categoryRanks));
@@ -273,15 +372,10 @@ function compareItems(
 function compareOverviewDefault(
 	left: InventoryOverviewItemSnapshot,
 	right: InventoryOverviewItemSnapshot,
-	categoryRanks: ReadonlyMap<string, number>,
 ): number {
 	const stockDifference = stockRank(left) - stockRank(right);
 	if (stockDifference !== 0) {
 		return stockDifference;
-	}
-	const categoryDifference = categoryRank(left, categoryRanks) - categoryRank(right, categoryRanks);
-	if (categoryDifference !== 0) {
-		return categoryDifference;
 	}
 	const nameDifference = compareText(left.name, right.name);
 	return nameDifference !== 0 ? nameDifference : compareText(left.id, right.id);

@@ -3,7 +3,7 @@
 	"uuid": "22a2cf3515804a9fa91e230c4a58d896",
 	"displayName": "元器件库存",
 	"description": "管理个人元器件库存，并优先使用已有库存。",
-	"version": "0.4.3",
+	"version": "0.4.12",
 	"publisher": "bluescola",
 	"engines": {
 		"eda": "^3.0.0"
