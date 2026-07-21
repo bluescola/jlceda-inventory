@@ -5,7 +5,10 @@
 /config/
 /coverage/
 /docs/
+/manual-test/
+/logs/
 /.github/
+/.codex/
 /node_modules/
 /src/
 /tests/

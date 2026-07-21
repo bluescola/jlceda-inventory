@@ -1,8 +1,12 @@
 /.vscode/*
 !/.vscode/extensions.json
 !/.vscode/settings.json
+/.codex/
 /coverage/
 /dist/
+/iframe/
 /node_modules/
+/manual-test/
+/logs/
 /.eslintcache
 debug.log
