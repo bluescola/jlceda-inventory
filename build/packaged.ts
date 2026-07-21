@@ -1,4 +1,5 @@
 import path from 'node:path';
+import process from 'node:process';
 import fs from 'fs-extra';
 import ignore from 'ignore';
 import JSZip from 'jszip';
@@ -51,6 +52,7 @@ function fixUuid(uuid?: string): string {
  * 主逻辑方法
  */
 function main() {
+	const diagnosticSuffix = process.argv.includes('--diagnostic') ? '_diagnostic' : '';
 	if (!testUuid(extensionConfig.uuid)) {
 		const newExtensionConfig = { ...extensionConfig };
 		// @ts-expect-error - Removing default property from extension config
@@ -88,7 +90,7 @@ function main() {
 	}
 
 	zip.generateNodeStream({ type: 'nodebuffer', streamFiles: true, compression: 'DEFLATE', compressionOptions: { level: 9 } }).pipe(
-		fs.createWriteStream(path.join(__dirname, 'dist', `${extensionConfig.name}_v${extensionConfig.version}.eext`)),
+		fs.createWriteStream(path.join(__dirname, 'dist', `${extensionConfig.name}_v${extensionConfig.version}${diagnosticSuffix}.eext`)),
 	);
 }
 

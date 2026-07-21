@@ -6,4 +6,15 @@ export interface ParsedOrderRow {
 	hasExplicitState: boolean;
 }
 
+export interface OrderFileIdentity {
+	orderNumber: string | undefined;
+	fingerprint: string;
+}
+
+export interface ParsedOrderFile {
+	fileName: string;
+	identity: OrderFileIdentity;
+	rows: ParsedOrderRow[];
+}
+
 export type ImportDefaultState = StockState;

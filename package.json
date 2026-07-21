@@ -3,6 +3,9 @@
 	"version": "0.1.0",
 	"description": "嘉立创EDA专业版个人元器件库存管理扩展",
 	"author": "bluescola",
+	"contributors": [
+		"OpenAI Codex"
+	],
 	"license": "Apache-2.0",
 	"homepage": "https://github.com/bluescola/jlceda-inventory",
 	"repository": {
@@ -13,15 +16,18 @@
 		"node": ">=20.17.0"
 	},
 	"scripts": {
-		"compile": "rimraf ./dist/ && ts-node ./config/esbuild.prod.ts",
+		"compile": "rimraf ./dist/ ./iframe/ && ts-node ./build/compile-iframe.ts && ts-node ./config/esbuild.prod.ts",
+		"compile:diagnostic": "rimraf ./dist/ ./iframe/ && ts-node ./build/compile-iframe.ts && ts-node ./config/esbuild.prod.ts --diagnostic",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
 		"lint": "eslint",
 		"fix": "eslint --fix",
-		"build": "npm run compile && ts-node ./build/packaged.ts"
+		"build": "npm run compile && ts-node ./build/packaged.ts",
+		"build:diagnostic": "npm run compile:diagnostic && ts-node ./build/packaged.ts --diagnostic"
 	},
 	"dependencies": {
-		"papaparse": "^5.5.4"
+		"papaparse": "^5.5.4",
+		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
 	},
 	"devDependencies": {
 		"@antfu/eslint-config": "^5.4.1",

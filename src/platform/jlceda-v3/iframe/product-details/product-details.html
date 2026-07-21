@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Component Inventory</title>
+	<style>/* __PRODUCT_DETAILS_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="form-shell" aria-busy="true" id="form-shell">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">Loading...</span>
+		</div>
+		<form id="product-form" autocomplete="off" hidden>
+			<div class="fields">
+				<label class="field-row">
+					<span id="label-lcsc"></span>
+					<input id="part-number" type="text" readonly>
+				</label>
+				<label class="field-row">
+					<span><span id="label-name"></span><span class="required" aria-hidden="true">*</span></span>
+					<input id="name" name="name" type="text" required maxlength="500">
+				</label>
+				<label class="field-row">
+					<span id="label-manufacturer"></span>
+					<input id="manufacturer" name="manufacturer" type="text" maxlength="500">
+				</label>
+				<label class="field-row">
+					<span id="label-manufacturer-part-number"></span>
+					<input id="manufacturer-part-number" name="manufacturerPartNumber" type="text" maxlength="500">
+				</label>
+				<label class="field-row">
+					<span id="label-package"></span>
+					<input id="package" name="package" type="text" maxlength="500">
+				</label>
+				<label class="field-row field-row-textarea">
+					<span id="label-description"></span>
+					<textarea id="description" name="description" rows="4" maxlength="4000"></textarea>
+				</label>
+			</div>
+			<p class="form-error" id="form-error" role="alert" hidden></p>
+			<footer class="actions">
+				<button id="cancel" type="button" class="button button-secondary"></button>
+				<button id="confirm" type="submit" class="button button-primary"></button>
+			</footer>
+		</form>
+		<p class="connection-error" id="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __PRODUCT_DETAILS_INLINE_JS__ */</script>
+</body>
+</html>

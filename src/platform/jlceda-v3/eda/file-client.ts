@@ -1,15 +1,20 @@
-export interface PickedTextFile {
+export interface PickedOrderFile {
 	name: string;
-	text: string;
+	content: ArrayBuffer;
 }
 
 export class EdaFileClient {
-	public async pickOrderFile(): Promise<PickedTextFile | undefined> {
-		const file = await eda.sys_FileSystem.openReadFileDialog(['csv', 'json'], false);
-		if (!file) {
+	public async pickOrderFiles(): Promise<PickedOrderFile[] | undefined> {
+		const files = await eda.sys_FileSystem.openReadFileDialog(['xls', 'xlsx', 'csv', 'json'], true);
+		if (!files) {
 			return undefined;
 		}
-		return { name: file.name, text: await file.text() };
+		return Promise.all(
+			files.map(async file => ({
+				name: file.name,
+				content: await file.arrayBuffer(),
+			})),
+		);
 	}
 
 	public async saveJson(value: unknown, fileName: string): Promise<void> {

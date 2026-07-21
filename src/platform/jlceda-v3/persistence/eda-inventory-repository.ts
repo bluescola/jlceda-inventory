@@ -1,6 +1,6 @@
 import type { InventoryDocument } from '../../../features/inventory/domain/inventory-document';
 import type { InventoryRepository } from '../../../features/inventory/ports/inventory-repository';
-import { createEmptyInventoryDocument, isInventoryDocument } from '../../../features/inventory/domain/inventory-document';
+import { cloneInventoryDocument, createEmptyInventoryDocument, migrateInventoryDocument } from '../../../features/inventory/domain/inventory-document';
 
 export const INVENTORY_STORAGE_KEY = 'inventory.v1.document';
 
@@ -16,15 +16,16 @@ export class EdaInventoryRepository implements InventoryRepository {
 		if (stored === undefined) {
 			return createEmptyInventoryDocument();
 		}
-		if (!isInventoryDocument(stored)) {
+		const document = migrateInventoryDocument(stored);
+		if (!document) {
 			throw new TypeError('Unsupported or invalid inventory document.');
 		}
-		return structuredClone(stored);
+		return document;
 	}
 
 	public async save(document: InventoryDocument): Promise<void> {
 		try {
-			const saved = await eda.sys_Storage.setExtensionUserConfig(INVENTORY_STORAGE_KEY, structuredClone(document));
+			const saved = await eda.sys_Storage.setExtensionUserConfig(INVENTORY_STORAGE_KEY, cloneInventoryDocument(document));
 			if (!saved) {
 				throw new Error('The host rejected the inventory configuration write.');
 			}

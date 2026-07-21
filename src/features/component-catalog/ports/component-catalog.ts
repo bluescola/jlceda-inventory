@@ -1,14 +1,14 @@
-import type { CatalogReference, PartIdentity } from '../../inventory/domain/inventory-item';
+import type { EdaModelReference, PartIdentity } from '../../inventory/domain/inventory-item';
 
-export interface CatalogPart {
+export interface EdaModel {
 	identity: PartIdentity;
-	reference: CatalogReference;
+	reference: EdaModelReference;
 	symbolName?: string;
 	footprintName?: string;
 	attributes: Record<string, boolean | number | string>;
 }
 
-export interface ComponentCatalog {
-	findByLcscPartNumber: (partNumber: string) => Promise<CatalogPart | undefined>;
-	search: (query: string, limit?: number) => Promise<CatalogPart[]>;
+export interface EdaModelCatalog {
+	findByLcscPartNumber: (partNumber: string) => Promise<EdaModel | undefined>;
+	search: (query: string, limit?: number) => Promise<EdaModel[]>;
 }

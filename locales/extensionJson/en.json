@@ -1,12 +1,13 @@
 {
-	"Component Inventory": "Component Inventory",
-	"Manage personal component stock and prefer parts already on hand.": "Manage personal component stock and prefer parts already on hand.",
-	"Inventory overview": "Inventory overview",
-	"Add by LCSC part number": "Add by LCSC part number",
-	"Add custom component": "Add custom component",
-	"Import order file": "Import order file",
-	"Inventory-first recommendations": "Inventory-first recommendations",
-	"Export inventory backup": "Export inventory backup",
-	"Place from inventory": "Place from inventory",
-	"About inventory extension": "About inventory extension"
+	"元器件库存": "Component Inventory",
+	"管理个人元器件库存，并优先使用已有库存。": "Manage personal component stock and prefer parts already on hand.",
+	"库存总览": "Inventory overview",
+	"按立创 C 编号添加": "Add by LCSC part number",
+	"添加自定义元器件": "Add custom component",
+	"导入订单文件": "Import order file",
+	"导出库存备份": "Export inventory backup",
+	"查看诊断日志": "View diagnostic logs",
+	"导出诊断日志": "Export diagnostic logs",
+	"从库存放置元器件": "Place from inventory",
+	"关于库存扩展": "About inventory extension"
 }

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="und">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title></title>
+	<style>/* __INVENTORY_ITEM_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="panel-shell" id="panel-shell" aria-busy="true">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">...</span>
+		</div>
+
+		<section id="view-panel" hidden>
+			<dl class="details-list" id="view-details"></dl>
+			<footer class="actions">
+				<button id="view-close" type="button" class="button button-secondary"></button>
+				<button id="view-edit" type="button" class="button button-primary"></button>
+			</footer>
+		</section>
+
+		<form id="edit-panel" autocomplete="off" novalidate hidden>
+			<div class="edit-layout">
+				<div class="edit-fields">
+					<label class="field-row"><span id="label-lcsc"></span><input id="edit-lcsc" type="text" maxlength="500"></label>
+					<label class="field-row"><span id="label-supplier"></span><input id="edit-supplier" type="text" maxlength="500"></label>
+					<label class="field-row"><span><span id="label-name"></span><span class="required" aria-hidden="true">*</span></span><input id="edit-name" type="text" required maxlength="500"></label>
+					<label class="field-row"><span id="label-manufacturer"></span><input id="edit-manufacturer" type="text" maxlength="500"></label>
+					<label class="field-row"><span id="label-manufacturer-part"></span><input id="edit-manufacturer-part" type="text" maxlength="500"></label>
+					<label class="field-row"><span id="label-package"></span><input id="edit-package" type="text" maxlength="500"></label>
+					<label class="field-row field-row-textarea"><span id="label-description"></span><textarea id="edit-description" rows="3" maxlength="4000"></textarea></label>
+					<label class="field-row"><span><span id="label-quantity"></span><span class="required" aria-hidden="true">*</span></span><input id="edit-quantity" type="number" inputmode="numeric" min="0" step="1" required></label>
+					<fieldset class="field-row choice-row">
+						<legend id="label-precision"></legend>
+						<div class="segmented-control">
+							<label><input id="precision-exact" type="radio" name="precision" value="exact"><span id="label-exact"></span></label>
+							<label><input id="precision-estimated" type="radio" name="precision" value="estimated"><span id="label-estimated"></span></label>
+						</div>
+					</fieldset>
+					<label class="field-row checkbox-row"><span id="label-depleted"></span><input id="edit-depleted" type="checkbox"></label>
+					<div class="field-row">
+						<label id="label-location" for="edit-location"></label>
+						<div class="input-with-action">
+							<input id="edit-location" type="text" maxlength="1000">
+							<button id="choose-location" type="button" class="field-action" aria-controls="location-options" aria-expanded="false"></button>
+							<div id="location-options" class="location-options" role="listbox" hidden></div>
+						</div>
+					</div>
+					<label class="field-row field-row-textarea"><span id="label-note"></span><textarea id="edit-note" rows="3" maxlength="4000"></textarea></label>
+				</div>
+
+				<aside class="suggestion-panel" id="suggestion-panel" hidden>
+					<h2 id="suggestion-title"></h2>
+					<div id="suggestion-list"></div>
+				</aside>
+			</div>
+			<p class="form-error" id="edit-error" role="alert" hidden></p>
+			<footer class="actions">
+				<button id="edit-cancel" type="button" class="button button-secondary"></button>
+				<button id="edit-save" type="submit" class="button button-primary"></button>
+			</footer>
+		</form>
+
+		<section id="compare-panel" hidden>
+			<div class="compare-layout">
+				<section class="compare-column" aria-labelledby="existing-title">
+					<h2 id="existing-title"></h2>
+					<dl class="details-list compact" id="existing-details"></dl>
+				</section>
+				<section class="compare-column" aria-labelledby="candidate-title">
+					<h2 id="candidate-title"></h2>
+					<dl class="details-list compact" id="candidate-details"></dl>
+				</section>
+			</div>
+			<footer class="actions">
+				<button id="compare-cancel" type="button" class="button button-secondary"></button>
+				<button id="compare-confirm" type="button" class="button button-primary"></button>
+			</footer>
+		</section>
+
+		<p class="connection-error" id="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __INVENTORY_ITEM_INLINE_JS__ */</script>
+</body>
+</html>

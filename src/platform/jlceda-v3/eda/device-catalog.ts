@@ -1,10 +1,10 @@
-import type { CatalogPart, ComponentCatalog } from '../../../features/component-catalog/ports/component-catalog';
+import type { EdaModel, EdaModelCatalog } from '../../../features/component-catalog/ports/component-catalog';
 import { normalizeLcscPartNumber } from '../../../features/inventory/domain/inventory-item';
 
 type SearchItem = Awaited<ReturnType<typeof eda.lib_Device.search>>[number];
 
-export class EdaDeviceCatalog implements ComponentCatalog {
-	public async findByLcscPartNumber(partNumber: string): Promise<CatalogPart | undefined> {
+export class EdaDeviceCatalog implements EdaModelCatalog {
+	public async findByLcscPartNumber(partNumber: string): Promise<EdaModel | undefined> {
 		const normalized = normalizeLcscPartNumber(partNumber);
 		if (!normalized) {
 			return undefined;
@@ -15,16 +15,16 @@ export class EdaDeviceCatalog implements ComponentCatalog {
 		return first ? this.hydrate(first, normalized) : undefined;
 	}
 
-	public async search(query: string, limit = 20): Promise<CatalogPart[]> {
+	public async search(query: string, limit = 20): Promise<EdaModel[]> {
 		const matches = await eda.lib_Device.search(query, undefined, undefined, undefined, limit, 1);
-		const hydrated: CatalogPart[] = [];
+		const hydrated: EdaModel[] = [];
 		for (const match of matches.slice(0, limit)) {
 			hydrated.push(await this.hydrate(match));
 		}
 		return hydrated;
 	}
 
-	private async hydrate(item: SearchItem, fallbackLcscPartNumber?: string): Promise<CatalogPart> {
+	private async hydrate(item: SearchItem, fallbackLcscPartNumber?: string): Promise<EdaModel> {
 		const details = await eda.lib_Device.get(item.uuid, item.libraryUuid);
 		const properties = details?.property;
 		const attributes = cleanAttributes({
@@ -42,6 +42,9 @@ export class EdaDeviceCatalog implements ComponentCatalog {
 			'商品编号',
 		]);
 		const lcscPartNumber = normalizeLcscPartNumber(supplierId ?? fallbackLcscPartNumber);
+		const symbolName = item.symbol?.name ?? item.symbolName;
+		const footprintName = item.footprint?.name ?? item.footprintName;
+		const packageName = pickString(attributes, ['Package', 'Supplier Package', '供应商封装', '商品封装', '封装']) ?? footprintName;
 		return {
 			identity: {
 				name: details?.name ?? item.name,
@@ -49,15 +52,17 @@ export class EdaDeviceCatalog implements ComponentCatalog {
 				supplierId: supplierId ?? lcscPartNumber,
 				manufacturer: properties?.manufacturer ?? pickString(attributes, ['Manufacturer', '制造商', '品牌']),
 				manufacturerPartNumber: properties?.manufacturerId ?? pickString(attributes, ['Manufacturer Part', 'Manufacturer Part Number', 'MPN', '厂家型号', '制造商编号']),
-				package: item.footprint?.name ?? item.footprintName ?? pickString(attributes, ['Package', 'Footprint', '封装']),
+				package: packageName,
 				description: details?.description ?? item.description,
 			},
 			reference: {
 				deviceUuid: item.uuid,
 				libraryUuid: item.libraryUuid,
+				symbolName,
+				footprintName,
 			},
-			symbolName: item.symbol?.name ?? item.symbolName,
-			footprintName: item.footprint?.name ?? item.footprintName,
+			symbolName,
+			footprintName,
 			attributes,
 		};
 	}

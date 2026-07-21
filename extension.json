@@ -1,8 +1,8 @@
 {
 	"name": "jlceda-inventory",
 	"uuid": "22a2cf3515804a9fa91e230c4a58d896",
-	"displayName": "Component Inventory",
-	"description": "Manage personal component stock and prefer parts already on hand.",
+	"displayName": "元器件库存",
+	"description": "管理个人元器件库存，并优先使用已有库存。",
 	"version": "0.1.0",
 	"publisher": "bluescola",
 	"engines": {
@@ -35,41 +35,46 @@
 		"home": [
 			{
 				"id": "componentInventory",
-				"title": "Component Inventory",
+				"title": "元器件库存",
 				"menuItems": [
 					{
 						"id": "inventoryOverview",
-						"title": "Inventory overview",
+						"title": "库存总览",
 						"registerFn": "openInventory"
 					},
 					{
 						"id": "addByLcsc",
-						"title": "Add by LCSC part number",
+						"title": "按立创 C 编号添加",
 						"registerFn": "addByLcscPartNumber"
 					},
 					{
 						"id": "addManual",
-						"title": "Add custom component",
+						"title": "添加自定义元器件",
 						"registerFn": "addCustomComponent"
 					},
 					{
 						"id": "importOrder",
-						"title": "Import order file",
+						"title": "导入订单文件",
 						"registerFn": "importOrderFile"
 					},
 					{
-						"id": "recommend",
-						"title": "Inventory-first recommendations",
-						"registerFn": "showRecommendations"
-					},
-					{
 						"id": "exportBackup",
-						"title": "Export inventory backup",
+						"title": "导出库存备份",
 						"registerFn": "exportInventoryBackup"
 					},
 					{
+						"id": "viewDiagnosticLogs",
+						"title": "查看诊断日志",
+						"registerFn": "showDiagnosticLogs"
+					},
+					{
+						"id": "exportDiagnosticLogs",
+						"title": "导出诊断日志",
+						"registerFn": "exportDiagnosticLogs"
+					},
+					{
 						"id": "about",
-						"title": "About inventory extension",
+						"title": "关于库存扩展",
 						"registerFn": "about"
 					}
 				]
@@ -78,27 +83,32 @@
 		"sch": [
 			{
 				"id": "componentInventory",
-				"title": "Component Inventory",
+				"title": "元器件库存",
 				"menuItems": [
 					{
 						"id": "inventoryOverview",
-						"title": "Inventory overview",
+						"title": "库存总览",
 						"registerFn": "openInventory"
 					},
 					{
 						"id": "placeFromInventory",
-						"title": "Place from inventory",
+						"title": "从库存放置元器件",
 						"registerFn": "placeFromInventory"
 					},
 					{
 						"id": "addByLcsc",
-						"title": "Add by LCSC part number",
+						"title": "按立创 C 编号添加",
 						"registerFn": "addByLcscPartNumber"
 					},
 					{
-						"id": "recommend",
-						"title": "Inventory-first recommendations",
-						"registerFn": "showRecommendations"
+						"id": "viewDiagnosticLogs",
+						"title": "查看诊断日志",
+						"registerFn": "showDiagnosticLogs"
+					},
+					{
+						"id": "exportDiagnosticLogs",
+						"title": "导出诊断日志",
+						"registerFn": "exportDiagnosticLogs"
 					}
 				]
 			}
@@ -106,22 +116,27 @@
 		"pcb": [
 			{
 				"id": "componentInventory",
-				"title": "Component Inventory",
+				"title": "元器件库存",
 				"menuItems": [
 					{
 						"id": "inventoryOverview",
-						"title": "Inventory overview",
+						"title": "库存总览",
 						"registerFn": "openInventory"
 					},
 					{
 						"id": "addByLcsc",
-						"title": "Add by LCSC part number",
+						"title": "按立创 C 编号添加",
 						"registerFn": "addByLcscPartNumber"
 					},
 					{
-						"id": "recommend",
-						"title": "Inventory-first recommendations",
-						"registerFn": "showRecommendations"
+						"id": "viewDiagnosticLogs",
+						"title": "查看诊断日志",
+						"registerFn": "showDiagnosticLogs"
+					},
+					{
+						"id": "exportDiagnosticLogs",
+						"title": "导出诊断日志",
+						"registerFn": "exportDiagnosticLogs"
 					}
 				]
 			}

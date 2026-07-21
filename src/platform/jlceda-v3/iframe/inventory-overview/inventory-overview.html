@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="und">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title></title>
+	<style>/* __INVENTORY_OVERVIEW_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main id="panel-shell" class="panel-shell" aria-busy="true">
+		<div id="boot-status" class="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">...</span>
+		</div>
+
+		<div id="overview-app" class="overview-app" hidden>
+			<header class="overview-header">
+				<form id="search-form" class="primary-search" role="search">
+					<button id="open-categories" class="icon-button category-toggle" type="button" aria-controls="category-panel" aria-expanded="false"></button>
+					<label id="search-label" class="visually-hidden" for="search-input"></label>
+					<input id="search-input" class="search-input" type="search" maxlength="500" autocomplete="off">
+					<label id="search-scope-label" class="visually-hidden" for="search-scope"></label>
+					<select id="search-scope" class="search-scope"></select>
+					<button id="search-submit" class="button button-primary search-button" type="submit"></button>
+					<button id="clear-search" class="button button-secondary" type="button"></button>
+				</form>
+
+				<div class="filter-toolbar">
+					<label class="filter-control"><span id="stock-filter-label"></span><select id="stock-filter"></select></label>
+					<label class="filter-control"><span id="model-filter-label"></span><select id="model-filter"></select></label>
+					<label class="filter-control"><span id="sort-label"></span><select id="sort-select"></select></label>
+					<button id="clear-filters" class="button button-secondary" type="button"></button>
+					<button id="refresh" class="button button-secondary" type="button"></button>
+				</div>
+			</header>
+
+			<div class="workspace">
+				<button id="category-overlay" class="category-overlay" type="button" hidden></button>
+				<aside id="category-panel" class="category-panel">
+					<div class="category-heading">
+						<strong id="category-heading-label"></strong>
+						<button id="close-categories" class="icon-button category-close" type="button"></button>
+					</div>
+					<nav id="category-tree" class="category-tree"></nav>
+					<div class="category-management">
+						<button id="toggle-category-management" class="button button-secondary category-manage-button" type="button" aria-haspopup="dialog"></button>
+					</div>
+				</aside>
+
+				<section class="inventory-content">
+					<div class="result-toolbar">
+						<p id="result-summary" class="result-summary" aria-live="polite"></p>
+						<div id="bulk-toolbar" class="bulk-toolbar">
+							<span id="selected-summary"></span>
+							<button id="select-filtered" class="button button-secondary" type="button"></button>
+							<button id="clear-selection" class="button button-secondary" type="button"></button>
+							<span id="bulk-category-label" class="bulk-category-label"></span>
+							<div class="bulk-category-fields">
+								<label id="bulk-root-category-label" for="bulk-root-category"></label>
+								<select id="bulk-root-category"></select>
+								<label id="bulk-child-category-label" for="bulk-child-category"></label>
+								<select id="bulk-child-category"></select>
+							</div>
+							<button id="apply-move" class="button button-primary" type="button"></button>
+						</div>
+					</div>
+
+					<div class="table-scroll">
+						<table class="inventory-table">
+							<thead>
+								<tr>
+									<th class="select-column"><input id="select-page" type="checkbox"></th>
+									<th id="column-name"></th>
+									<th id="column-number"></th>
+									<th id="column-category"></th>
+									<th id="column-quantity"></th>
+									<th id="column-location"></th>
+									<th id="column-model"></th>
+									<th id="column-updated"></th>
+									<th id="column-actions"></th>
+								</tr>
+							</thead>
+							<tbody id="inventory-rows"></tbody>
+						</table>
+						<div id="empty-results" class="empty-results" hidden></div>
+					</div>
+
+					<footer class="pagination">
+						<label class="page-size-control"><span id="page-size-label"></span><select id="page-size"></select></label>
+						<span id="page-status" class="page-status"></span>
+						<div class="page-buttons">
+							<button id="first-page" class="icon-button" type="button"></button>
+							<button id="previous-page" class="icon-button" type="button"></button>
+							<button id="next-page" class="icon-button" type="button"></button>
+							<button id="last-page" class="icon-button" type="button"></button>
+						</div>
+					</footer>
+				</section>
+			</div>
+		</div>
+
+		<div id="category-manager-backdrop" class="dialog-backdrop" hidden>
+			<section id="category-manager-dialog" class="category-manager-dialog" role="dialog" aria-modal="true" aria-labelledby="category-manager-title">
+				<header class="modal-heading">
+					<h2 id="category-manager-title"></h2>
+					<button id="category-manager-close-icon" class="icon-button" type="button"></button>
+				</header>
+				<p id="category-manager-error" class="inline-error" role="alert" hidden></p>
+				<div class="category-manager-columns">
+					<section class="category-manager-column">
+						<div class="category-manager-toolbar">
+							<strong id="root-category-heading"></strong>
+							<div class="category-manager-actions">
+								<button id="add-root-category" class="category-action" type="button">+</button>
+								<button id="rename-root-category" class="category-action" type="button">Aa</button>
+								<button id="move-root-up" class="category-action" type="button">&#8593;</button>
+								<button id="move-root-down" class="category-action" type="button">&#8595;</button>
+								<button id="delete-root-category" class="category-action danger" type="button">&#215;</button>
+							</div>
+						</div>
+						<div id="root-category-list" class="category-manager-list" role="listbox"></div>
+					</section>
+					<section class="category-manager-column">
+						<div class="category-manager-toolbar">
+							<strong id="child-category-heading"></strong>
+							<div class="category-manager-actions">
+								<button id="add-child-category" class="category-action" type="button">+</button>
+								<button id="rename-child-category" class="category-action" type="button">Aa</button>
+								<button id="move-child-up" class="category-action" type="button">&#8593;</button>
+								<button id="move-child-down" class="category-action" type="button">&#8595;</button>
+								<button id="delete-child-category" class="category-action danger" type="button">&#215;</button>
+							</div>
+						</div>
+						<div id="child-category-list" class="category-manager-list" role="listbox"></div>
+					</section>
+				</div>
+				<footer class="dialog-actions">
+					<button id="category-manager-close" class="button button-secondary" type="button"></button>
+				</footer>
+			</section>
+		</div>
+
+		<div id="operation-backdrop" class="dialog-backdrop operation-backdrop" hidden>
+			<section id="operation-dialog" class="operation-dialog" role="dialog" aria-modal="true" aria-labelledby="operation-title">
+				<h2 id="operation-title"></h2>
+				<div id="operation-message" class="operation-message" role="status"></div>
+				<footer class="dialog-actions">
+					<button id="operation-cancel" class="button button-secondary" type="button"></button>
+					<button id="operation-retry" class="button button-secondary" type="button" hidden></button>
+					<button id="operation-confirm" class="button button-primary" type="button" hidden></button>
+				</footer>
+			</section>
+		</div>
+
+		<p id="connection-error" class="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __INVENTORY_OVERVIEW_INLINE_JS__ */</script>
+</body>
+</html>

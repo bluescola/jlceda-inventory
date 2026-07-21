@@ -1,0 +1,463 @@
+import type { Translate } from '../eda/i18n-client';
+import type {
+	IFrameInventoryOverviewRequest,
+	InventoryOverviewLabels,
+} from './iframe-inventory-overview-protocol';
+import type {
+	InventoryOverviewInput,
+	InventoryOverviewOperationHandler,
+	InventoryOverviewPanel,
+} from './inventory-overview-panel';
+import type { DiagnosticTrace } from './native-diagnostics';
+import {
+	createIFrameInventoryOverviewOperationResponse,
+	createInventoryOverviewRequest,
+	INVENTORY_OVERVIEW_IFRAME_ID,
+	INVENTORY_OVERVIEW_IFRAME_PATH,
+	INVENTORY_OVERVIEW_REQUEST_KEY,
+	INVENTORY_OVERVIEW_RESPONSE_KEY,
+	INVENTORY_OVERVIEW_RESULT_KEY,
+	parseIFrameInventoryOverviewResult,
+} from './iframe-inventory-overview-protocol';
+import { DIALOG_SETTLE_DELAY_MS } from './native-dialog';
+
+const PANEL_WIDTH = 1240;
+const PANEL_HEIGHT = 800;
+const POLL_INTERVAL_MS = 100;
+const READY_TIMEOUT_MS = 10_000;
+
+interface IFrameOpenOptions {
+	title: string;
+	onClose: () => void;
+}
+
+export interface InventoryOverviewIFrameHost {
+	read: (key: string) => unknown;
+	write: (key: string, value: unknown) => Promise<boolean>;
+	remove: (key: string) => Promise<boolean>;
+	open: (options: IFrameOpenOptions) => Promise<boolean>;
+	close: () => Promise<boolean>;
+	startPolling: (id: string, intervalMs: number, callback: () => void) => boolean;
+	stopPolling: (id: string) => boolean;
+}
+
+export class InventoryOverviewPanelUnavailableError extends Error {
+	public constructor(
+		public readonly status: 'api-missing' | 'init-failed' | 'render-failed',
+		options?: ErrorOptions,
+	) {
+		super(`Inventory overview panel unavailable: ${status}`, options);
+		this.name = 'InventoryOverviewPanelUnavailableError';
+	}
+}
+
+type PanelOutcome
+	= | { status: 'cancelled' }
+		| { status: 'failed'; error: unknown; ready: boolean };
+
+export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
+	private queue: Promise<void> = Promise.resolve();
+
+	public constructor(
+		private readonly t: Translate,
+		private readonly host: InventoryOverviewIFrameHost = new EdaInventoryOverviewIFrameHost(),
+	) {}
+
+	public open(
+		input: InventoryOverviewInput,
+		onOperation: InventoryOverviewOperationHandler,
+		trace?: DiagnosticTrace,
+	): Promise<void> {
+		return this.enqueue(async () => {
+			const request = createInventoryOverviewRequest(createRequestId(), this.labels(), input);
+			await this.openExclusive(request, onOperation, trace);
+		});
+	}
+
+	private enqueue<T>(operation: () => Promise<T>): Promise<T> {
+		const result = this.queue.then(operation);
+		this.queue = result.then(() => undefined, () => undefined);
+		return result;
+	}
+
+	private async openExclusive(
+		request: IFrameInventoryOverviewRequest,
+		onOperation: InventoryOverviewOperationHandler,
+		trace?: DiagnosticTrace,
+	): Promise<PanelOutcome> {
+		const timerId = `${INVENTORY_OVERVIEW_IFRAME_ID}.${request.requestId}`;
+		let opened = false;
+		let pollStarted = false;
+		let ready = false;
+		let settled = false;
+		let readyDeadline: number | undefined;
+		const observedStages = new Set<string>();
+		const observedOperations = new Set<string>();
+		let operationQueue: Promise<void> = Promise.resolve();
+		let resolveOutcome: (outcome: PanelOutcome) => void = () => undefined;
+		const outcomePromise = new Promise<PanelOutcome>((resolve) => {
+			resolveOutcome = (outcome) => {
+				if (settled) {
+					return;
+				}
+				settled = true;
+				resolve(outcome);
+			};
+		});
+		const readResult = (): void => {
+			try {
+				const result = parseIFrameInventoryOverviewResult(
+					this.host.read(INVENTORY_OVERVIEW_RESULT_KEY),
+					request.requestId,
+				);
+				if (!result) {
+					return;
+				}
+				if (result.status === 'progress') {
+					if (!observedStages.has(result.stage)) {
+						observedStages.add(result.stage);
+						trace?.info('inventory-overview-panel.iframe.stage', { stage: result.stage });
+					}
+					return;
+				}
+				if (result.status === 'ready') {
+					if (!ready) {
+						ready = true;
+						trace?.info('inventory-overview-panel.iframe.ready');
+					}
+					return;
+				}
+				if (result.status === 'failed') {
+					trace?.error('inventory-overview-panel.iframe.failed', {
+						errorName: result.errorName,
+						stage: result.stage,
+					});
+					resolveOutcome({ status: 'failed', error: new Error('The inventory overview IFrame failed.'), ready });
+					return;
+				}
+				if (result.status === 'operation') {
+					if (!observedOperations.has(result.operation.operationId)) {
+						observedOperations.add(result.operation.operationId);
+						operationQueue = operationQueue.then(() => this.handleOperation(
+							request,
+							result.operation,
+							onOperation,
+							() => !settled,
+							trace,
+						));
+					}
+					return;
+				}
+				resolveOutcome({ status: 'cancelled' });
+			}
+			catch (error) {
+				resolveOutcome({ status: 'failed', error, ready });
+			}
+		};
+		const poll = (): void => {
+			readResult();
+			if (!settled && !ready && readyDeadline !== undefined && Date.now() >= readyDeadline) {
+				resolveOutcome({ status: 'failed', error: new Error('The inventory overview IFrame did not become ready.'), ready: false });
+			}
+		};
+
+		try {
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESULT_KEY, trace);
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESPONSE_KEY, trace);
+			if (!await this.host.write(INVENTORY_OVERVIEW_REQUEST_KEY, request)) {
+				throw new InventoryOverviewPanelUnavailableError('init-failed');
+			}
+			trace?.info('inventory-overview-panel.iframe.request.stored', {
+				categoryCount: request.categories.length,
+				itemCount: request.items.length,
+			});
+			pollStarted = this.host.startPolling(timerId, POLL_INTERVAL_MS, poll);
+			if (!pollStarted) {
+				throw new InventoryOverviewPanelUnavailableError('api-missing');
+			}
+			trace?.info('inventory-overview-panel.iframe.open.request', {
+				height: PANEL_HEIGHT,
+				iframeId: INVENTORY_OVERVIEW_IFRAME_ID,
+				path: INVENTORY_OVERVIEW_IFRAME_PATH,
+				width: PANEL_WIDTH,
+			});
+			opened = await this.host.open({
+				title: request.labels.title,
+				onClose: () => {
+					readResult();
+					resolveOutcome({ status: 'cancelled' });
+				},
+			});
+			if (!opened) {
+				throw new InventoryOverviewPanelUnavailableError('init-failed');
+			}
+			readyDeadline = Date.now() + READY_TIMEOUT_MS;
+			trace?.info('inventory-overview-panel.iframe.opened');
+			poll();
+
+			const outcome = await outcomePromise;
+			trace?.info('inventory-overview-panel.iframe.response', { status: outcome.status });
+			if (outcome.status === 'failed') {
+				if (outcome.ready) {
+					throw outcome.error;
+				}
+				throw new InventoryOverviewPanelUnavailableError('render-failed', { cause: outcome.error });
+			}
+			return outcome;
+		}
+		catch (error) {
+			if (error instanceof InventoryOverviewPanelUnavailableError || ready) {
+				throw error;
+			}
+			throw new InventoryOverviewPanelUnavailableError('init-failed', { cause: error });
+		}
+		finally {
+			if (pollStarted) {
+				this.host.stopPolling(timerId);
+			}
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_REQUEST_KEY, trace);
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESULT_KEY, trace);
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESPONSE_KEY, trace);
+			if (opened) {
+				try {
+					const closed = await this.host.close();
+					trace?.info('inventory-overview-panel.iframe.closed', { status: closed ? 'closed' : 'already-closed' });
+				}
+				catch (error) {
+					trace?.warn('inventory-overview-panel.iframe.close.failed', { errorName: errorName(error) });
+				}
+			}
+			await delay(DIALOG_SETTLE_DELAY_MS);
+		}
+	}
+
+	private async handleOperation(
+		request: IFrameInventoryOverviewRequest,
+		operation: Parameters<InventoryOverviewOperationHandler>[0],
+		onOperation: InventoryOverviewOperationHandler,
+		isSessionActive: () => boolean,
+		trace?: DiagnosticTrace,
+	): Promise<void> {
+		trace?.info('inventory-overview-panel.operation.started', {
+			operationId: operation.operationId,
+			type: operation.intent.type,
+		});
+		let result;
+		try {
+			result = await onOperation(operation);
+		}
+		catch (error) {
+			trace?.error('inventory-overview-panel.operation.failed', {
+				errorName: errorName(error),
+				operationId: operation.operationId,
+				type: operation.intent.type,
+			});
+			result = { status: 'failed' as const, message: request.labels.connectionError };
+		}
+		const response = createIFrameInventoryOverviewOperationResponse(
+			request.requestId,
+			operation.operationId,
+			result,
+		);
+		if (!isSessionActive()) {
+			trace?.info('inventory-overview-panel.operation.response-discarded', {
+				operationId: operation.operationId,
+				reason: 'session-closed',
+			});
+			return;
+		}
+		if (!await this.host.write(INVENTORY_OVERVIEW_RESPONSE_KEY, response)) {
+			trace?.warn('inventory-overview-panel.operation.response-rejected', {
+				operationId: operation.operationId,
+			});
+			return;
+		}
+		trace?.info('inventory-overview-panel.operation.completed', {
+			operationId: operation.operationId,
+			status: result.status,
+			type: operation.intent.type,
+		});
+	}
+
+	private async removeBridgeValue(key: string, trace?: DiagnosticTrace): Promise<void> {
+		try {
+			await this.host.remove(key);
+		}
+		catch (error) {
+			trace?.warn('inventory-overview-panel.iframe.cleanup.failed', { errorName: errorName(error) });
+		}
+	}
+
+	private labels(): InventoryOverviewLabels {
+		return {
+			title: this.t('inventoryOverview.title'),
+			searchLabel: this.t('inventoryOverview.searchLabel'),
+			searchPlaceholder: this.t('inventoryOverview.searchPlaceholder'),
+			search: this.t('inventoryOverview.search'),
+			clearSearch: this.t('inventoryOverview.clearSearch'),
+			searchScope: this.t('inventoryOverview.searchScope'),
+			searchAllCategories: this.t('inventoryOverview.searchAllCategories'),
+			searchCurrentCategory: this.t('inventoryOverview.searchCurrentCategory'),
+			openCategories: this.t('inventoryOverview.openCategories'),
+			closeCategories: this.t('inventoryOverview.closeCategories'),
+			allCategories: this.t('inventoryOverview.allCategories'),
+			unclassified: this.t('inventoryOverview.unclassified'),
+			manageCategories: this.t('inventoryOverview.manageCategories'),
+			addRootCategory: this.t('inventoryOverview.addRootCategory'),
+			addChildCategory: this.t('inventoryOverview.addChildCategory'),
+			renameCategory: this.t('inventoryOverview.renameCategory'),
+			moveCategoryUp: this.t('inventoryOverview.moveCategoryUp'),
+			moveCategoryDown: this.t('inventoryOverview.moveCategoryDown'),
+			dragCategory: this.t('inventoryOverview.dragCategory'),
+			expandCategory: this.t('inventoryOverview.expandCategory'),
+			collapseCategory: this.t('inventoryOverview.collapseCategory'),
+			deleteCategory: this.t('inventoryOverview.deleteCategory'),
+			categoryName: this.t('inventoryOverview.categoryName'),
+			categoryNamePlaceholder: this.t('inventoryOverview.categoryNamePlaceholder'),
+			cancel: this.t('dialog.cancel'),
+			confirm: this.t('dialog.confirm'),
+			stockFilter: this.t('inventoryOverview.stockFilter'),
+			stockAll: this.t('inventoryOverview.stockAll'),
+			stockInStock: this.t('inventoryOverview.stockInStock'),
+			stockDepleted: this.t('inventoryOverview.stockDepleted'),
+			modelFilter: this.t('inventoryOverview.modelFilter'),
+			modelAll: this.t('inventoryOverview.modelAll'),
+			modelAvailable: this.t('inventoryOverview.modelAvailable'),
+			modelMissing: this.t('inventoryOverview.modelMissing'),
+			modelFailed: this.t('inventoryOverview.modelFailed'),
+			modelUnchecked: this.t('inventoryOverview.modelUnchecked'),
+			sortLabel: this.t('inventoryOverview.sortLabel'),
+			sortRelevance: this.t('inventoryOverview.sortRelevance'),
+			sortName: this.t('inventoryOverview.sortName'),
+			sortStock: this.t('inventoryOverview.sortStock'),
+			sortUpdated: this.t('inventoryOverview.sortUpdated'),
+			sortCategory: this.t('inventoryOverview.sortCategory'),
+			clearFilters: this.t('inventoryOverview.clearFilters'),
+			refresh: this.t('inventoryOverview.refresh'),
+			itemsCount: this.t('inventoryOverview.itemsCount'),
+			filteredCount: this.t('inventoryOverview.filteredCount'),
+			selectedCount: this.t('inventoryOverview.selectedCount'),
+			selectAllFiltered: this.t('inventoryOverview.selectAllFiltered'),
+			clearSelection: this.t('inventoryOverview.clearSelection'),
+			moveToCategory: this.t('inventoryOverview.moveToCategory'),
+			primaryCategory: this.t('inventoryOverview.primaryCategory'),
+			secondaryCategory: this.t('inventoryOverview.secondaryCategory'),
+			noSecondaryCategory: this.t('inventoryOverview.noSecondaryCategory'),
+			dragItem: this.t('inventoryOverview.dragItem'),
+			dropItemToCategory: this.t('inventoryOverview.dropItemToCategory'),
+			applyMove: this.t('inventoryOverview.applyMove'),
+			selectAll: this.t('inventoryOverview.selectAll'),
+			columnName: this.t('part.nameLabel'),
+			columnNumber: this.t('inventoryOverview.columnNumber'),
+			columnCategory: this.t('inventoryOverview.columnCategory'),
+			columnQuantity: this.t('inventory.quantityLabel'),
+			columnLocation: this.t('inventory.locationLabel'),
+			columnModel: this.t('inventoryOverview.columnModel'),
+			columnUpdatedAt: this.t('inventoryItem.updatedAt'),
+			columnActions: this.t('inventoryOverview.columnActions'),
+			lcscPartNumber: this.t('part.lcscLabel'),
+			supplierId: this.t('inventoryItem.supplierId'),
+			manufacturer: this.t('part.manufacturerLabel'),
+			manufacturerPartNumber: this.t('part.manufacturerPartLabel'),
+			package: this.t('part.packageLabel'),
+			description: this.t('part.descriptionLabel'),
+			precision: this.t('inventoryItem.precision'),
+			exact: this.t('inventory.exact'),
+			estimated: this.t('inventory.estimated'),
+			depleted: this.t('inventory.depleted'),
+			note: this.t('inventory.noteLabel'),
+			save: this.t('inventoryItem.save'),
+			nameRequired: this.t('inventoryItem.nameRequired'),
+			lcscInvalid: this.t('part.lcscInvalid'),
+			quantityRequired: this.t('inventoryItem.quantityRequired'),
+			quantityInteger: this.t('inventoryItem.quantityInteger'),
+			quantityNonNegative: this.t('inventoryItem.quantityNonNegative'),
+			existing: this.t('inventoryItem.existing'),
+			candidate: this.t('inventoryItem.candidate'),
+			confirmMerge: this.t('inventoryItem.confirmMerge'),
+			quantityUnknown: this.t('inventory.unknown'),
+			quantityEstimated: this.t('inventoryOverview.quantityEstimated'),
+			emptyValue: this.t('inventoryItem.emptyValue'),
+			viewItem: this.t('inventoryOverview.viewItem'),
+			editItem: this.t('inventoryOverview.editItem'),
+			deleteItem: this.t('inventoryOverview.deleteItem'),
+			openMarketplace: this.t('marketplace.open'),
+			retryModel: this.t('edaModel.retry'),
+			copyCommon: this.t('inventory.copyCommon'),
+			emptyResults: this.t('inventoryOverview.emptyResults'),
+			pageSize: this.t('inventoryOverview.pageSize'),
+			pageStatus: this.t('inventoryOverview.pageStatus'),
+			firstPage: this.t('inventoryOverview.firstPage'),
+			previousPage: this.t('inventoryOverview.previousPage'),
+			nextPage: this.t('inventoryOverview.nextPage'),
+			lastPage: this.t('inventoryOverview.lastPage'),
+			loading: this.t('productForm.loading'),
+			connectionError: this.t('productForm.connectionError'),
+		};
+	}
+}
+
+class EdaInventoryOverviewIFrameHost implements InventoryOverviewIFrameHost {
+	public read(key: string): unknown {
+		return eda.sys_Storage.getExtensionUserConfig(key);
+	}
+
+	public write(key: string, value: unknown): Promise<boolean> {
+		return eda.sys_Storage.setExtensionUserConfig(key, value);
+	}
+
+	public remove(key: string): Promise<boolean> {
+		return eda.sys_Storage.deleteExtensionUserConfig(key);
+	}
+
+	public open(options: IFrameOpenOptions): Promise<boolean> {
+		if (typeof eda.sys_IFrame?.openIFrame !== 'function') {
+			throw new InventoryOverviewPanelUnavailableError('api-missing');
+		}
+		return eda.sys_IFrame.openIFrame(
+			INVENTORY_OVERVIEW_IFRAME_PATH,
+			PANEL_WIDTH,
+			PANEL_HEIGHT,
+			INVENTORY_OVERVIEW_IFRAME_ID,
+			{
+				grayscaleMask: true,
+				maximizeButton: true,
+				title: options.title,
+				buttonCallbackFn: button => button === 'close' ? options.onClose() : undefined,
+			},
+		);
+	}
+
+	public close(): Promise<boolean> {
+		return eda.sys_IFrame.closeIFrame(INVENTORY_OVERVIEW_IFRAME_ID);
+	}
+
+	public startPolling(id: string, intervalMs: number, callback: () => void): boolean {
+		if (typeof eda.sys_Timer?.setIntervalTimer !== 'function') {
+			return false;
+		}
+		return eda.sys_Timer.setIntervalTimer(id, intervalMs, callback);
+	}
+
+	public stopPolling(id: string): boolean {
+		return eda.sys_Timer.clearIntervalTimer(id);
+	}
+}
+
+function createRequestId(): string {
+	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function delay(milliseconds: number): Promise<void> {
+	return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function errorName(error: unknown): string {
+	if (error instanceof Error) {
+		return error.name;
+	}
+	if (error && typeof error === 'object' && 'name' in error && typeof error.name === 'string') {
+		return error.name.slice(0, 80);
+	}
+	return typeof error;
+}

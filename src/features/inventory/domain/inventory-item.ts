@@ -1,10 +1,21 @@
 export type QuantityPrecision = 'exact' | 'estimated' | 'unknown';
 export type StockState = 'in-stock' | 'depleted';
-export type InventorySource = 'manual' | 'catalog' | 'order';
+export type InventorySource = 'manual' | 'marketplace' | 'catalog' | 'order';
+export type MarketplaceEvidence = 'user-confirmed' | 'order-import';
+export type EdaModelStatus = 'available' | 'missing' | 'failed' | 'unchecked';
 
-export interface CatalogReference {
+export interface MarketplaceReference {
+	provider: 'lcsc';
+	productUrl: string;
+	evidence: MarketplaceEvidence;
+	confirmedAt: string;
+}
+
+export interface EdaModelReference {
 	deviceUuid: string;
 	libraryUuid: string;
+	symbolName?: string;
+	footprintName?: string;
 }
 
 export interface PartIdentity {
@@ -19,8 +30,11 @@ export interface PartIdentity {
 
 export interface InventoryItem {
 	id: string;
+	categoryId?: string;
 	identity: PartIdentity;
-	catalogReference?: CatalogReference;
+	marketplaceReference?: MarketplaceReference;
+	edaModelReference?: EdaModelReference;
+	edaModelStatus: EdaModelStatus;
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state: StockState;
@@ -33,8 +47,11 @@ export interface InventoryItem {
 }
 
 export interface NewInventoryItem {
+	categoryId?: string;
 	identity: PartIdentity;
-	catalogReference?: CatalogReference;
+	marketplaceReference?: MarketplaceReference;
+	edaModelReference?: EdaModelReference;
+	edaModelStatus?: EdaModelStatus;
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state?: StockState;
@@ -43,12 +60,33 @@ export interface NewInventoryItem {
 	source: InventorySource;
 }
 
+const FORMAT_CHARACTERS = /\p{Cf}/gu;
+
+export function normalizeInventoryText(value: string): string {
+	const withoutUnsafeFormatCharacters = value
+		// ZWNJ and ZWJ are format characters with valid multilingual shaping semantics.
+		.replaceAll(FORMAT_CHARACTERS, character => character === '\u200C' || character === '\u200D' ? character : '');
+	return Array.from(withoutUnsafeFormatCharacters, character => isUnsafeControlCharacter(character) ? '' : character).join('').trim();
+}
+
+function isUnsafeControlCharacter(character: string): boolean {
+	const codePoint = character.codePointAt(0) ?? 0;
+	return codePoint <= 0x08
+		|| codePoint === 0x0B
+		|| codePoint === 0x0C
+		|| (codePoint >= 0x0E && codePoint <= 0x1F)
+		|| (codePoint >= 0x7F && codePoint <= 0x9F);
+}
+
 export function normalizeInventoryItem(input: NewInventoryItem, now: string, id: string): InventoryItem {
 	const quantity = normalizeQuantity(input.quantity, input.precision);
 	return {
 		id,
+		categoryId: input.categoryId,
 		identity: normalizeIdentity(input.identity),
-		catalogReference: input.catalogReference,
+		marketplaceReference: input.marketplaceReference ? { ...input.marketplaceReference } : undefined,
+		edaModelReference: input.edaModelReference ? sanitizeEdaModelReferenceText(input.edaModelReference) : undefined,
+		edaModelStatus: input.edaModelReference ? 'available' : input.edaModelStatus ?? 'unchecked',
 		quantity,
 		precision: input.precision,
 		state: input.state === 'depleted' || quantity === 0 ? 'depleted' : 'in-stock',
@@ -81,7 +119,7 @@ export function inventoryIdentityKey(identity: PartIdentity): string {
 	if (partNumber) {
 		return `mpn:${manufacturer}:${partNumber}`;
 	}
-	return `name:${identity.name.trim().toLowerCase()}`;
+	return `name:${normalizeInventoryText(identity.name).toLowerCase()}`;
 }
 
 export function normalizeLcscPartNumber(value?: string): string | undefined {
@@ -93,7 +131,33 @@ export function normalizeLcscPartNumber(value?: string): string | undefined {
 }
 
 function normalizeIdentity(identity: PartIdentity): PartIdentity {
-	const name = identity.name.trim();
+	const normalized = sanitizeIdentityText(identity);
+	return {
+		...normalized,
+		supplierId: normalized.supplierId ?? normalized.lcscPartNumber,
+	};
+}
+
+export function sanitizeInventoryItemText(item: InventoryItem): InventoryItem {
+	return {
+		...item,
+		identity: sanitizeIdentityText(item.identity),
+		edaModelReference: item.edaModelReference ? sanitizeEdaModelReferenceText(item.edaModelReference) : undefined,
+		location: cleanOptional(item.location),
+		note: cleanOptional(item.note),
+	};
+}
+
+export function sanitizeEdaModelReferenceText(reference: EdaModelReference): EdaModelReference {
+	return {
+		...reference,
+		symbolName: cleanOptional(reference.symbolName),
+		footprintName: cleanOptional(reference.footprintName),
+	};
+}
+
+function sanitizeIdentityText(identity: PartIdentity): PartIdentity {
+	const name = normalizeInventoryText(identity.name);
 	if (!name) {
 		throw new Error('Component name is required.');
 	}
@@ -101,7 +165,7 @@ function normalizeIdentity(identity: PartIdentity): PartIdentity {
 	return {
 		name,
 		lcscPartNumber,
-		supplierId: cleanOptional(identity.supplierId) ?? lcscPartNumber,
+		supplierId: cleanOptional(identity.supplierId),
 		manufacturerPartNumber: cleanOptional(identity.manufacturerPartNumber),
 		manufacturer: cleanOptional(identity.manufacturer),
 		package: cleanOptional(identity.package),
@@ -110,6 +174,6 @@ function normalizeIdentity(identity: PartIdentity): PartIdentity {
 }
 
 function cleanOptional(value?: string): string | undefined {
-	const cleaned = value?.trim();
+	const cleaned = value === undefined ? undefined : normalizeInventoryText(value);
 	return cleaned || undefined;
 }

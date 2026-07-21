@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Inventory Create</title>
+	<style>/* __INVENTORY_CREATE_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main id="panel-shell" class="panel-shell" aria-busy="true">
+		<div id="boot-status" class="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">Loading form...</span>
+		</div>
+		<form id="create-form" hidden novalidate>
+			<header class="panel-header">
+				<div>
+					<h1 id="panel-title"></h1>
+					<p id="eda-status" class="status-line" data-state="idle"></p>
+				</div>
+				<div class="header-tools">
+					<div class="header-actions">
+						<button id="open-marketplace" class="button button-secondary" type="button"></button>
+						<button id="query-eda" class="button button-secondary" type="button"></button>
+					</div>
+					<label class="marketplace-confirmation">
+						<input id="marketplace-confirmed" type="checkbox" disabled>
+						<span id="marketplace-confirmed-label"></span>
+					</label>
+				</div>
+			</header>
+
+			<div class="form-sections">
+				<section class="form-section" aria-labelledby="identity-heading">
+					<h2 id="identity-heading"></h2>
+					<div class="field-grid">
+						<label class="field-row"><span id="lcsc-label"></span><input id="lcsc" type="text" autocomplete="off" maxlength="500"></label>
+						<label class="field-row"><span id="supplier-label"></span><input id="supplier" type="text" autocomplete="off" maxlength="500"></label>
+						<label class="field-row"><span><span id="name-label"></span><span class="required">*</span></span><input id="name" type="text" autocomplete="off" maxlength="500"></label>
+						<label class="field-row"><span id="manufacturer-label"></span><input id="manufacturer" type="text" autocomplete="off" maxlength="500"></label>
+						<label class="field-row"><span id="manufacturer-part-label"></span><input id="manufacturer-part" type="text" autocomplete="off" maxlength="500"></label>
+						<label class="field-row"><span id="package-label"></span><input id="package" type="text" autocomplete="off" maxlength="500"></label>
+						<label class="field-row field-wide field-textarea"><span id="description-label"></span><textarea id="description" maxlength="4000"></textarea></label>
+					</div>
+				</section>
+
+				<section class="form-section" aria-labelledby="stock-heading">
+					<h2 id="stock-heading"></h2>
+					<div class="field-grid">
+						<fieldset class="field-row field-wide quantity-mode">
+							<legend id="quantity-mode-label"></legend>
+							<div class="segmented-control">
+								<label><input id="mode-exact" name="quantity-mode" type="radio" value="exact"><span id="mode-exact-label"></span></label>
+								<label><input id="mode-estimated" name="quantity-mode" type="radio" value="estimated"><span id="mode-estimated-label"></span></label>
+								<label><input id="mode-unknown" name="quantity-mode" type="radio" value="unknown"><span id="mode-unknown-label"></span></label>
+								<label><input id="mode-depleted" name="quantity-mode" type="radio" value="depleted"><span id="mode-depleted-label"></span></label>
+							</div>
+						</fieldset>
+						<label class="field-row"><span><span id="quantity-label"></span><span class="required">*</span></span><input id="quantity" type="number" inputmode="numeric" step="1"></label>
+						<label class="field-row"><span id="primary-category-label"></span><select id="primary-category"></select></label>
+						<label class="field-row"><span id="secondary-category-label"></span><select id="secondary-category"></select></label>
+						<div class="field-row field-wide">
+							<label id="location-label" for="location"></label>
+							<div class="input-with-action">
+								<input id="location" type="text" autocomplete="off" maxlength="1000">
+								<button id="choose-location" class="field-action" type="button" aria-haspopup="listbox" aria-expanded="false"></button>
+								<div id="location-options" class="location-options" role="listbox" hidden></div>
+							</div>
+						</div>
+						<label class="field-row field-wide field-textarea"><span id="note-label"></span><textarea id="note" maxlength="4000"></textarea></label>
+					</div>
+				</section>
+			</div>
+
+			<p id="form-error" class="form-error" role="alert" hidden></p>
+			<footer class="actions">
+				<button id="cancel" class="button button-secondary" type="button"></button>
+				<button id="save" class="button button-primary" type="submit"></button>
+			</footer>
+		</form>
+
+		<div id="modal-backdrop" class="modal-backdrop" hidden>
+			<section id="suggestion-modal" class="modal" role="dialog" aria-modal="true" hidden>
+				<h2 id="suggestion-title"></h2>
+				<div id="suggestion-list" class="suggestion-list"></div>
+				<div class="modal-actions"><button id="suggestion-close" class="button button-primary" type="button"></button></div>
+			</section>
+			<section id="duplicate-modal" class="modal" role="dialog" aria-modal="true" hidden>
+				<h2 id="duplicate-title"></h2>
+				<p id="duplicate-message" class="modal-message" hidden></p>
+				<div class="compare-layout">
+					<div><h3 id="existing-title"></h3><dl id="existing-details"></dl></div>
+					<div><h3 id="pending-title"></h3><dl id="pending-details"></dl></div>
+				</div>
+				<div class="modal-actions">
+					<button id="duplicate-cancel" class="button button-secondary" type="button"></button>
+					<button id="duplicate-confirm" class="button button-primary" type="button"></button>
+				</div>
+			</section>
+		</div>
+
+		<p id="connection-error" class="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __INVENTORY_CREATE_INLINE_JS__ */</script>
+</body>
+</html>

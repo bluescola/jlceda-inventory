@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Order Import</title>
+	<style>/* __ORDER_IMPORT_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main id="shell" class="shell" aria-busy="true">
+		<div id="boot" class="boot"><span class="spinner"></span><span id="boot-message">Loading...</span></div>
+		<section id="settings-view" hidden>
+			<header><h1 id="title"></h1><p id="settings-title" class="subtitle"></p></header>
+			<div class="settings-grid">
+				<label><span id="default-state-label"></span><select id="default-state"><option value="in-stock"></option><option value="depleted"></option></select></label>
+				<label><span id="strategy-label"></span><select id="strategy"><option value="add"></option><option value="replace"></option><option value="skip"></option></select></label>
+			</div>
+			<ul id="selected-files" class="selected-files"></ul>
+			<p id="settings-error" class="error" hidden></p>
+			<footer><button id="settings-cancel" class="button secondary" type="button"></button><button id="preview" class="button primary" type="button"></button></footer>
+		</section>
+		<section id="preview-view" hidden>
+			<header><h1 id="preview-title"></h1><p id="preview-summary" class="subtitle"></p></header>
+			<div class="table-wrap"><table><thead><tr><th id="file-name-heading"></th><th id="order-number-heading"></th><th id="rows-heading"></th><th id="quantity-heading"></th><th id="status-heading"></th><th id="changes-heading"></th></tr></thead><tbody id="preview-body"></tbody></table></div>
+			<p id="preview-warning" class="warning" hidden></p>
+			<footer><button id="preview-back" class="button secondary" type="button"></button><button id="preview-cancel" class="button secondary" type="button"></button><button id="import" class="button primary" type="button"></button></footer>
+		</section>
+		<section id="progress-view" hidden>
+			<header><h1 id="progress-title"></h1><p id="progress-phase" class="subtitle"></p></header>
+			<div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"><div id="progress-fill" class="progress-fill"></div></div>
+			<p id="progress-status" class="progress-status"></p>
+			<p id="progress-error" class="error" hidden></p>
+		</section>
+		<section id="completed-view" hidden>
+			<div class="completed-mark" aria-hidden="true">✓</div>
+			<h1 id="completed-title"></h1>
+			<p id="completed-summary" class="completed-summary"></p>
+			<footer><button id="done" class="button primary" type="button"></button></footer>
+		</section>
+		<p id="connection-error" class="connection-error" hidden></p>
+	</main>
+	<script>/* __ORDER_IMPORT_INLINE_JS__ */</script>
+</body>
+</html>
