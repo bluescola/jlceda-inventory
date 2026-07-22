@@ -4,6 +4,41 @@
 
 # Changelog
 
+## 0.5.1 - 2026-07-22
+
+- Fix initial automatic-backup setup on JLCEDA Professional 3.2.166, where a client-config response mismatch can make `getDocumentsPath()` return an empty string and be misreported as missing external-interaction permission. After the official permission check succeeds, the adapter reads the actual Documents path from the same client-config call chain.
+- Handle the `folderPath/path` mismatch in `createDirectoryInFileSystem()` by retrying through the permission-gated client call chain only when the public API returns `false`. Empty, relative, control-character, and malformed file-URI paths remain rejected, while valid `file:` URIs are converted to native paths for the file APIs.
+- Separate unavailable host API/permission errors from invalid host-directory responses. Release diagnostics now retain privacy-safe path kind, length, and failure stage, with regression tests for config fallback, URI conversion, directory rejection, and error classification.
+
+## 0.5.0 - 2026-07-22
+
+- Add current SCH/PCB and external-BOM stock checks with board multipliers, shortage filtering, and CSV export. Add bounded CSV/TXT/XLS/XLSX header, worksheet, and column mapping plus BOM-version diff and export; text BOMs detect UTF-8, UTF-16, and GB18030. Each BOM is limited to 10 MiB, stock check and stock-out accept exactly one file, version diff accepts exactly two, and workbooks are capped at 32 worksheets, 128 columns per worksheet, and 10,000 data rows.
+- Add per-item minimum stock, replenishment filtering/export, favorites, configurable columns, datasheet links, and structured locations. Package-code import now previews the raw code and parsed values, selected design parts can focus and highlight an exact inventory row, and missing models can use deterministic candidate search with explicit confirmation.
+- Add explicit atomic BOM stock-out, semantic duplicate detection, confirmed new production runs, and whole-batch reversal. Items referenced by active batches cannot be deleted or merged, and the ledger is explicitly limited to BOM stock-out and reversal rather than presented as complete inventory auditing.
+- Add project-demand snapshots, confirmed resynchronization diffs, board-quantity aggregation, procurement suggestions, purchase records, cost summaries, and CSV export. Purchase dates use calendar-only `YYYY-MM-DD` values and normalize legacy timestamps on read. Substitute relationships are explicitly confirmed between inventory items and are used only for manual candidate ranking, never automatic matching or deduction. Schematic and PCB snapshots for the same physical board are not yet linked and will double-count demand if both are retained.
+- Upgrade inventory documents to schema v9 for projects, purchases, BOM ledger data, and substitute links. Initial Desktop automatic-backup setup requires no path input: it creates a dedicated folder and fixed latest-snapshot JSON under Documents, then enables backup after a successful test write. Restore uses strict validation and transactional recovery-point protection. Backup or notification failures never turn an already committed primary save into a reported inventory failure.
+- Add shared document budgets, document-revision CAS, native-close race protection for operational IFrames, and automated regression coverage for the new rules. Order import accepts at most 100 files per selection and 10 MiB per file. JLCEDA BETA APIs, Web/Desktop file-system differences, and cross-runtime concurrency still require host validation.
+
+## 0.4.16 - 2026-07-22
+
+- Separate duplicate-order prevention from inventory update choices. The dialog now states that an imported order cannot be added again and presents Stock in, Reset quantity, and Add new parts only as explicit outcomes for updating existing inventory.
+
+## 0.4.15 - 2026-07-22
+
+- Rewrite the order-import inventory-match wording so the setting clearly controls quantity changes only when an order component matches an existing inventory record. The choices now explicitly add the order quantity, replace inventory with it, or leave inventory unchanged, avoiding confusion with duplicate-order or duplicate-file handling.
+
+## 0.4.14 - 2026-07-22
+
+- Fix historical file fingerprints blocking an order after its inventory was deleted. Import deduplication history now links to the actual inventory records, so a file becomes restorable when a linked record is removed or changed to another part.
+- Restore only missing rows after a partial order deletion and count retained rows as skipped instead of adding their quantities again. Separate orders previously merged into one inventory record can still restore their own quantities independently.
+- Upgrade inventory documents to schema v5. Batch summaries retain only normalized part-identity keys and inventory IDs, never workbook rows, order headers, or recipient data; legacy schema-v4 history uses current part presence for compatible recovery.
+
+## 0.4.13 - 2026-07-22
+
+- Add Delete selected to the inventory overview. Users can select all filtered results and confirm the irreversible batch deletion; the service validates every item revision and saves atomically, leaving the entire batch untouched if any record is stale.
+- Require IFrame blur to pair with EDA main-window focus before auto-hiding. Switching to an external application such as VS Code now keeps the inventory overview visible, while returning focus to the EDA workspace still hides it.
+- Fix common-library copy rejection being reported as a successful overview operation. Failures now return the correct status and reason and are recorded at `warn` level in diagnostics.
+
 ## 0.4.12 - 2026-07-22
 
 - Fix the inventory overview disappearing immediately after it becomes ready. Remove eager startup autofocus, wait 300 ms for EDA host focus to settle, then focus the search field and arm auto-hide so startup blur is not mistaken for a workspace click.
