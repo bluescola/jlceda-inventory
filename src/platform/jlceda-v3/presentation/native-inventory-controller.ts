@@ -1,27 +1,60 @@
+import type { BomDiffCsvLabels } from '../../../features/bom-analysis/application/export-bom-diff-csv';
+import type { BomDesignDemand, BomMappingResult, BomRowIssue, ParsedBomFile } from '../../../features/bom-analysis/domain/bom-analysis';
 import type { CommonLibrary } from '../../../features/common-library/ports/common-library';
 import type { EdaModel, EdaModelCatalog } from '../../../features/component-catalog/ports/component-catalog';
+import type { DesignStockCsvLabels } from '../../../features/design-stock-check/application/export-design-stock-csv';
+import type { DesignComponentSnapshot as StockDesignComponentSnapshot } from '../../../features/design-stock-check/domain/design-stock-check';
+import type { CurrentDesignReader, DesignComponentSnapshot, SelectedDesignComponentsReader } from '../../../features/design-stock-check/ports/design-component-reader';
+import type { ReplenishmentCsvLabels } from '../../../features/inventory/application/export-replenishment-csv';
 import type { InventoryEditInput, InventoryService } from '../../../features/inventory/application/inventory-service';
 import type { InventoryCategory } from '../../../features/inventory/domain/inventory-category';
 import type { EdaModelReference, EdaModelStatus, InventoryItem, MarketplaceReference, NewInventoryItem, PartIdentity, QuantityPrecision } from '../../../features/inventory/domain/inventory-item';
 import type { OrderImportBatchInput, OrderImportBatchPreview } from '../../../features/inventory/domain/order-import-batch';
+import type { SubstituteLink } from '../../../features/inventory/domain/substitute-link';
 import type { EdaLibraryCategories, EdaLibraryCategorySource } from '../../../features/inventory/ports/eda-library-categories';
+import type { ExternalLinkNavigator } from '../../../features/inventory/ports/external-link-navigator';
 import type { MarketplaceNavigator } from '../../../features/marketplace-catalog/ports/marketplace-navigator';
+import type { ParseLcscPackageCodeResult } from '../../../features/package-scan/application/parse-lcsc-package-code';
+import type { ProcurementCsvLabels } from '../../../features/project-planning/application/export-procurement-csv';
 import type { EdaFileClient, PickedOrderFile } from '../eda/file-client';
 import type { Translate } from '../eda/i18n-client';
 import type { EdaPlacementClient } from '../eda/placement-client';
-import type { InventoryCreateActionOutcome, InventoryCreateDraft, InventoryCreateDuplicateSnapshot, InventoryCreateMode, InventoryCreatePanel, InventoryCreatePanelAction } from './inventory-create-panel';
+import type { AutomaticBackupFailure, AutomaticInventoryBackup } from '../persistence/automatic-inventory-backup';
+import type { BomDiffPanel } from './bom-diff-panel';
+import type { BomMappingPanel } from './bom-mapping-panel';
+import type { BomStockOutPanel } from './bom-stock-out-panel';
+import type { DesignStockCheckPanel } from './design-stock-check-panel';
+import type { InventoryCreateActionOutcome, InventoryCreateDraft, InventoryCreateDuplicateSnapshot, InventoryCreateFormState, InventoryCreateMode, InventoryCreatePanel, InventoryCreatePanelAction } from './inventory-create-panel';
 import type { InventoryItemEditDraft, InventoryItemPanel } from './inventory-item-panel';
-import type { InventoryOverviewIntent, InventoryOverviewOperationResult, InventoryOverviewPanel } from './inventory-overview-panel';
+import type { InventoryOverviewIntent, InventoryOverviewOperationResult, InventoryOverviewPanel, InventoryOverviewViewState } from './inventory-overview-panel';
+import type { InventoryTransactionsPanel } from './inventory-transactions-panel';
 import type { Diagnostics, DiagnosticTrace } from './native-diagnostics';
 import type { InputOptions, NativeDialog, SelectOption } from './native-dialog';
 import type { OrderImportPanel, OrderImportPanelAction, OrderImportPanelActionOutcome, OrderImportPanelProgressReporter, OrderImportPanelSettings } from './order-import-panel';
 import type { ProductDetailsForm } from './product-details-form';
-import { InventoryCategoryRevisionConflictError, InventoryRevisionConflictError } from '../../../features/inventory/application/inventory-service';
+import type { ProjectPlanningOperationResult, ProjectPlanningPanel, ProjectPlanningPanelSnapshot } from './project-planning-panel';
+import { createBomDiffCsv } from '../../../features/bom-analysis/application/export-bom-diff-csv';
+import { mapBomRows } from '../../../features/bom-analysis/application/map-bom-rows';
+import { fingerprintBomSource, prepareBomStockOut } from '../../../features/bom-analysis/application/prepare-bom-stock-out';
+import { readBomFile } from '../../../features/bom-analysis/application/read-bom-file';
+import { diffNormalizedBoms } from '../../../features/bom-analysis/domain/diff-boms';
+import { checkDesignStock } from '../../../features/design-stock-check/application/check-design-stock';
+import { createDesignStockShortageCsv } from '../../../features/design-stock-check/application/export-design-stock-csv';
+import { createReplenishmentCsv } from '../../../features/inventory/application/export-replenishment-csv';
+import { BomStockOutBlockedError, InventoryCategoryRevisionConflictError, InventoryItemActiveStockOutReferenceError, InventoryItemSubstituteReferenceError, InventoryRevisionConflictError, ProjectSnapshotRevisionConflictError, PurchaseRecordRevisionConflictError, StockOutReversalBlockedError, SubstituteLinkDuplicateError, SubstituteLinkRevisionConflictError } from '../../../features/inventory/application/inventory-service';
+import { InventoryBackupValidationError, MAX_INVENTORY_BACKUP_TEXT_LENGTH, validateInventoryBackup } from '../../../features/inventory/application/validate-inventory-backup';
 import { normalizeInventoryText, normalizeLcscPartNumber } from '../../../features/inventory/domain/inventory-item';
+import { listConfirmedSubstituteCandidates } from '../../../features/inventory/domain/substitute-link';
+import { InventoryDocumentRevisionConflictError as DocumentRevisionConflictError } from '../../../features/inventory/ports/inventory-repository';
 import { identifyOrderFile } from '../../../features/order-import/application/order-file-identity';
-import { parseOrderFile } from '../../../features/order-import/application/parse-order-file';
+import { MAX_ORDER_IMPORT_FILES, parseOrderFile } from '../../../features/order-import/application/parse-order-file';
+import { parseLcscPackageCode } from '../../../features/package-scan/application/parse-lcsc-package-code';
+import { analyzeProjectDemand, createProcurementSuggestions } from '../../../features/project-planning/application/analyze-project-demand';
+import { createProjectSnapshot } from '../../../features/project-planning/application/create-project-snapshot';
+import { diffProjectSnapshots } from '../../../features/project-planning/application/diff-project-snapshots';
+import { createProcurementCsv } from '../../../features/project-planning/application/export-procurement-csv';
+import { InvalidAutomaticBackupFolderError } from '../persistence/automatic-inventory-backup';
 
-const MAX_ORDER_IMPORT_FILES = 100;
 const ORDER_IMPORT_MODEL_CONCURRENCY = 4;
 
 interface StockInput {
@@ -87,34 +120,47 @@ export class NativeInventoryController {
 		private readonly inventoryItemPanel: InventoryItemPanel,
 		private readonly t: Translate,
 		private readonly version: string,
+		private readonly selectedDesignComponents?: SelectedDesignComponentsReader,
+		private readonly currentDesign?: CurrentDesignReader,
+		private readonly designStockCheckPanel?: DesignStockCheckPanel,
+		private readonly automaticBackup?: AutomaticInventoryBackup,
+		private readonly bomMappingPanel?: BomMappingPanel,
+		private readonly bomDiffPanel?: BomDiffPanel,
+		private readonly bomStockOutPanel?: BomStockOutPanel,
+		private readonly inventoryTransactionsPanel?: InventoryTransactionsPanel,
+		private readonly projectPlanningPanel?: ProjectPlanningPanel,
+		private readonly externalLinks?: ExternalLinkNavigator,
 	) {}
 
-	public openInventory(): Promise<void> {
+	public openInventory(initialState?: InventoryOverviewViewState): Promise<void> {
 		const trace = this.diagnostics.start('inventory-overview', false);
-		return this.execute(async () => {
-			let document = await this.inventory.exportDocument();
-			const pendingModelMatches = new Map<string, PendingOverviewModelMatch>();
-			const pendingDuplicateMatches = new Map<string, PendingOverviewDuplicateMatch>();
-			await this.inventoryOverviewPanel.open({
-				items: document.items,
-				categories: document.categories,
-			}, async (operation) => {
-				const result = await this.handleInventoryOverviewIntent(
-					operation.intent,
-					document.items,
-					document.categories,
-					pendingModelMatches,
-					pendingDuplicateMatches,
-				);
-				if (result.status === 'model-match'
-					|| result.status === 'duplicate-match'
-					|| result.status === 'model-missing'
-					|| result.status === 'failed') {
-					return result;
-				}
-				document = await this.inventory.exportDocument();
-				return { ...result, snapshot: { items: document.items, categories: document.categories } };
-			}, trace);
+		return this.execute(() => this.runInventoryOverview(initialState, trace), trace);
+	}
+
+	private async runInventoryOverview(initialState: InventoryOverviewViewState | undefined, trace: DiagnosticTrace): Promise<void> {
+		let document = await this.inventory.exportDocument();
+		const pendingModelMatches = new Map<string, PendingOverviewModelMatch>();
+		const pendingDuplicateMatches = new Map<string, PendingOverviewDuplicateMatch>();
+		await this.inventoryOverviewPanel.open({
+			items: document.items,
+			categories: document.categories,
+			initialState,
+		}, async (operation) => {
+			const result = await this.handleInventoryOverviewIntent(
+				operation.intent,
+				document.items,
+				document.categories,
+				pendingModelMatches,
+				pendingDuplicateMatches,
+			);
+			if (result.status === 'model-match'
+				|| result.status === 'duplicate-match'
+				|| result.status === 'model-missing'
+				|| result.status === 'failed') {
+				return result;
+			}
+			document = await this.inventory.exportDocument();
+			return { ...result, snapshot: { items: document.items, categories: document.categories } };
 		}, trace);
 	}
 
@@ -124,6 +170,1344 @@ export class NativeInventoryController {
 
 	public addCustomComponent(): Promise<void> {
 		return this.openInventoryCreatePanel('custom');
+	}
+
+	public importPackageCode(): Promise<void> {
+		const trace = this.diagnostics.start('import-package-code');
+		return this.execute(async () => {
+			const rawCode = await this.tracedInput(trace, 'package-code.input', {
+				title: this.t('packageScan.title'),
+				label: this.t('packageScan.input'),
+			});
+			if (rawCode === undefined) {
+				trace.info('workflow.cancelled', { step: 'package-code.input' });
+				return;
+			}
+			const parsed = parseLcscPackageCode(rawCode);
+			if (parsed.status === 'invalid') {
+				trace.warn('package-code.invalid', { reason: parsed.reason });
+				this.dialog.info(this.t(packageScanErrorKey(parsed.reason)), this.t('packageScan.title'));
+				return;
+			}
+			if (!await this.dialog.confirm(
+				this.t(
+					'packageScan.confirmPreview',
+					rawCode.trim(),
+					parsed.value.lcscPartNumber,
+					parsed.value.manufacturerPartNumber ?? this.t('inventoryItem.emptyValue'),
+					parsed.value.quantity,
+				),
+				this.t('packageScan.title'),
+			)) {
+				return;
+			}
+			await this.runInventoryCreatePanel('lcsc', {
+				lcscPartNumber: parsed.value.lcscPartNumber,
+				supplierId: parsed.value.lcscPartNumber,
+				name: parsed.value.manufacturerPartNumber ?? parsed.value.lcscPartNumber,
+				manufacturerPartNumber: parsed.value.manufacturerPartNumber ?? '',
+				quantityMode: 'exact',
+				quantity: String(parsed.value.quantity),
+			}, trace);
+		}, trace);
+	}
+
+	public locateSelectedInventory(): Promise<void> {
+		const trace = this.diagnostics.start('locate-selected-inventory', false);
+		return this.execute(async () => {
+			if (!this.selectedDesignComponents) {
+				this.dialog.info(this.t('selectedInventory.unsupported'), this.t('selectedInventory.title'));
+				return;
+			}
+			const result = await trace.waitFor('selected-components.read', () => this.selectedDesignComponents!.readSelectedComponents());
+			if (result.status !== 'available') {
+				trace.warn('selected-components.result', { status: result.status });
+				this.dialog.info(
+					this.t(result.status === 'no-active-document' || result.status === 'unsupported-document'
+						? 'selectedInventory.noDocument'
+						: 'selectedInventory.unsupported'),
+					this.t('selectedInventory.title'),
+				);
+				return;
+			}
+			if (result.snapshot.components.length === 0) {
+				this.dialog.info(this.t('selectedInventory.empty'), this.t('selectedInventory.title'));
+				return;
+			}
+			const component = await this.chooseSelectedDesignComponent(result.snapshot.components);
+			if (!component) {
+				return;
+			}
+			const document = await this.inventory.exportDocument();
+			const matches = document.items.filter(item => matchesSelectedDesignComponent(item, component));
+			let item: InventoryItem | undefined;
+			if (matches.length === 1) {
+				item = matches[0];
+			}
+			else if (matches.length > 1) {
+				const selectedId = await this.dialog.select(
+					matches.map(candidate => ({ value: candidate.id, label: this.formatItemLine(candidate) })),
+					this.t('selectedInventory.title'),
+					this.t('selectedInventory.chooseInventory'),
+				);
+				item = matches.find(candidate => candidate.id === selectedId);
+				if (!item) {
+					return;
+				}
+			}
+			if (!item) {
+				if (!await this.dialog.confirm(
+					this.t('selectedInventory.offerAdd', component.designator ?? component.name ?? component.lcscPartNumber ?? '-'),
+					this.t('selectedInventory.title'),
+				)) {
+					return;
+				}
+				const mode: InventoryCreateMode = component.lcscPartNumber ? 'lcsc' : 'custom';
+				await this.runInventoryCreatePanel(mode, {
+					lcscPartNumber: component.lcscPartNumber ?? '',
+					supplierId: component.lcscPartNumber ?? '',
+					name: component.name ?? component.manufacturerPartNumber ?? component.lcscPartNumber ?? '',
+					manufacturer: component.manufacturer ?? '',
+					manufacturerPartNumber: component.manufacturerPartNumber ?? '',
+					package: component.package ?? '',
+					quantityMode: 'exact',
+					quantity: '1',
+				}, trace);
+				return;
+			}
+			const query = item.identity.lcscPartNumber
+				?? item.identity.manufacturerPartNumber
+				?? item.identity.name;
+			await this.runInventoryOverview(createOverviewSearchState(query, item.id), trace);
+		}, trace);
+	}
+
+	public checkCurrentDesignStock(): Promise<void> {
+		const trace = this.diagnostics.start('check-current-design-stock', false);
+		return this.execute(async () => {
+			if (!this.currentDesign || !this.designStockCheckPanel) {
+				await this.offerExternalBomStockCheck(this.t('designStockCheck.unsupported'), trace);
+				return;
+			}
+			const design = await trace.waitFor('design-stock-check.read-current-design', () => this.currentDesign!.readCurrentDesign());
+			if (design.status !== 'available') {
+				trace.warn('design-stock-check.read-result', { status: design.status });
+				const key = design.status === 'no-active-document' || design.status === 'unsupported-document'
+					? 'designStockCheck.noDocument'
+					: design.status === 'capability-unavailable'
+						? 'designStockCheck.unsupported'
+						: 'designStockCheck.readFailed';
+				await this.offerExternalBomStockCheck(this.t(key), trace);
+				return;
+			}
+			const rawBoardQuantity = await this.tracedInput(trace, 'design-stock-check.board-quantity', {
+				title: this.t('designStockCheck.title'),
+				label: this.t('designStockCheck.boardQuantityPrompt'),
+				type: 'number',
+				value: 1,
+				min: 1,
+				step: 1,
+			});
+			if (rawBoardQuantity === undefined) {
+				return;
+			}
+			const boardQuantity = Number(rawBoardQuantity.trim());
+			if (!Number.isSafeInteger(boardQuantity) || boardQuantity <= 0) {
+				this.dialog.info(this.t('designStockCheck.boardQuantityInvalid'), this.t('designStockCheck.title'));
+				return;
+			}
+			const inventory = await trace.waitFor('design-stock-check.read-inventory', () => this.inventory.exportDocument());
+			const report = checkDesignStock({
+				components: design.snapshot.components.map(toStockDesignComponent),
+				inventory: inventory.items,
+				boardQuantity,
+			});
+			trace.info('design-stock-check.report', {
+				boardQuantity,
+				componentCount: design.snapshot.components.length,
+				rowCount: report.rows.length,
+			});
+			await this.designStockCheckPanel.open({
+				report,
+				source: design.snapshot.document.kind,
+			}, async (action) => {
+				if (action.type === 'close') {
+					return { status: 'succeeded' };
+				}
+				try {
+					const csv = createDesignStockShortageCsv(report, this.designStockCsvLabels());
+					await this.files.saveCsv(csv, `jlceda-inventory-shortage-${new Date().toISOString().slice(0, 10)}.csv`);
+					return { status: 'succeeded', message: this.t('designStockCheck.exportSucceeded') };
+				}
+				catch (error) {
+					trace.error('design-stock-check.export.failed', { error: errorMessage(error) });
+					return { status: 'failed', message: this.t('designStockCheck.operationError') };
+				}
+			}, trace);
+		}, trace);
+	}
+
+	public checkExternalBomStock(): Promise<void> {
+		const trace = this.diagnostics.start('check-external-bom-stock', false);
+		return this.execute(() => this.runExternalBomStockCheck(trace), trace);
+	}
+
+	public compareBomVersions(): Promise<void> {
+		const trace = this.diagnostics.start('compare-bom-versions', false);
+		return this.execute(() => this.runBomVersionComparison(trace), trace);
+	}
+
+	public stockOutBomFile(): Promise<void> {
+		const trace = this.diagnostics.start('stock-out-bom-file', false);
+		return this.execute(() => this.runBomStockOut(trace), trace);
+	}
+
+	public openInventoryTransactions(): Promise<void> {
+		const trace = this.diagnostics.start('inventory-transactions', false);
+		return this.execute(async () => {
+			if (!this.inventoryTransactionsPanel) {
+				this.dialog.info(this.t('inventoryTransactions.unsupported'), this.t('inventoryTransactions.title'));
+				return;
+			}
+			const initial = await this.inventory.exportDocument();
+			await this.inventoryTransactionsPanel.open({
+				batches: initial.stockOutBatches,
+				transactions: initial.transactions,
+			}, async (action) => {
+				if (action.type === 'close') {
+					return { status: 'succeeded' };
+				}
+				if (action.type === 'refresh') {
+					const refreshed = await this.inventory.exportDocument();
+					return {
+						status: 'succeeded',
+						snapshot: {
+							batches: refreshed.stockOutBatches,
+							transactions: refreshed.transactions,
+						},
+					};
+				}
+				try {
+					const preview = await this.inventory.previewStockOutReversal(action.batchId);
+					if (preview.status !== 'ready') {
+						return { status: 'failed', message: this.t(`inventoryTransactions.undo.${preview.status}`) };
+					}
+					const note = await this.tracedInput(trace, 'inventory-transactions.undo-note', {
+						title: this.t('inventoryTransactions.title'),
+						label: this.t('inventoryTransactions.undoNotePrompt'),
+					});
+					if (note === undefined) {
+						return { status: 'failed', message: this.t('inventoryTransactions.undoCancelled') };
+					}
+					const result = await this.inventory.reverseStockOutBatch(
+						action.batchId,
+						preview.documentRevision,
+						note,
+					);
+					const refreshed = await this.inventory.exportDocument();
+					trace.info('inventory-transactions.batch-reversed', {
+						lineCount: result.transactions.length,
+						documentRevision: result.documentRevision,
+					});
+					return {
+						status: 'succeeded',
+						message: this.t('inventoryTransactions.undoCompleted', result.transactions.length),
+						snapshot: {
+							batches: refreshed.stockOutBatches,
+							transactions: refreshed.transactions,
+						},
+					};
+				}
+				catch (error) {
+					if (error instanceof DocumentRevisionConflictError || error instanceof StockOutReversalBlockedError) {
+						return { status: 'failed', message: this.t('inventoryTransactions.concurrentConflict') };
+					}
+					trace.error('inventory-transactions.undo.failed', { error: errorMessage(error) });
+					return { status: 'failed', message: this.t('inventoryTransactions.operationError') };
+				}
+			}, trace);
+		}, trace);
+	}
+
+	public openProjectPlanning(): Promise<void> {
+		const trace = this.diagnostics.start('project-planning', false);
+		return this.execute(async () => {
+			if (!this.projectPlanningPanel) {
+				this.dialog.info(this.t('projectPlanning.unsupported'), this.t('projectPlanning.title'));
+				return;
+			}
+			const initial = await this.inventory.exportDocument();
+			await this.projectPlanningPanel.open(
+				this.createProjectPlanningSnapshot(initial),
+				async (operation) => {
+					try {
+						if (operation.intent.type === 'close') {
+							return { status: 'succeeded' };
+						}
+						let message: string | undefined;
+						switch (operation.intent.type) {
+							case 'capture-current':
+								return this.captureCurrentProjectSnapshot(trace);
+							case 'set-board-quantity':
+								await this.inventory.setProjectSnapshotBoardQuantity(
+									operation.intent.snapshot.id,
+									operation.intent.snapshot.expectedRevision,
+									operation.intent.boardQuantity,
+								);
+								message = this.t('projectPlanning.boardQuantityUpdated');
+								break;
+							case 'remove-snapshot':
+								await this.inventory.removeProjectSnapshot(
+									operation.intent.snapshot.id,
+									operation.intent.snapshot.expectedRevision,
+								);
+								message = this.t('projectPlanning.snapshotRemoved');
+								break;
+							case 'export-procurement': {
+								const document = await this.inventory.exportDocument();
+								const suggestions = createProcurementSuggestions(analyzeProjectDemand(
+									document.projectSnapshots,
+									document.items,
+								));
+								await this.files.saveCsv(
+									createProcurementCsv(suggestions, this.procurementCsvLabels()),
+									`jlceda-inventory-procurement-${new Date().toISOString().slice(0, 10)}.csv`,
+								);
+								message = this.t('projectPlanning.exportSucceeded');
+								break;
+							}
+							case 'add-purchase':
+								await this.inventory.addPurchaseRecord(operation.intent.draft);
+								message = this.t('projectPlanning.purchaseAdded');
+								break;
+							case 'remove-purchase':
+								await this.inventory.removePurchaseRecord(
+									operation.intent.purchase.id,
+									operation.intent.purchase.expectedRevision,
+								);
+								message = this.t('projectPlanning.purchaseRemoved');
+								break;
+							case 'refresh':
+								break;
+						}
+						return {
+							status: 'succeeded',
+							message,
+							snapshot: this.createProjectPlanningSnapshot(await this.inventory.exportDocument()),
+						};
+					}
+					catch (error) {
+						if (error instanceof DocumentRevisionConflictError
+							|| error instanceof InventoryRevisionConflictError
+							|| error instanceof ProjectSnapshotRevisionConflictError
+							|| error instanceof PurchaseRecordRevisionConflictError) {
+							return { status: 'failed', message: this.t('projectPlanning.concurrentConflict') };
+						}
+						trace.error('project-planning.operation.failed', { error: errorMessage(error) });
+						return { status: 'failed', message: this.t('projectPlanning.operationError') };
+					}
+				},
+				trace,
+			);
+		}, trace);
+	}
+
+	public manageSubstituteLinks(): Promise<void> {
+		const trace = this.diagnostics.start('manage-substitute-links', false);
+		return this.execute(async () => {
+			const document = await this.inventory.exportDocument();
+			if (document.items.length < 2) {
+				this.dialog.info(this.t('substituteLinks.notEnoughItems'), this.t('substituteLinks.title'));
+				return;
+			}
+			const baseItemId = await this.tracedSelect(
+				trace,
+				'substitute-links.base-item',
+				document.items
+					.toSorted((left, right) => left.identity.name.localeCompare(right.identity.name) || left.id.localeCompare(right.id))
+					.map(item => ({ value: item.id, label: this.formatItemLine(item) })),
+				this.t('substituteLinks.title'),
+				this.t('substituteLinks.chooseBase'),
+			);
+			if (!baseItemId) {
+				return;
+			}
+			const requiredQuantityText = await this.tracedInput(trace, 'substitute-links.required-quantity', {
+				title: this.t('substituteLinks.title'),
+				label: this.t('substituteLinks.requiredQuantity'),
+				type: 'number',
+				value: 1,
+				min: 1,
+				step: 1,
+			});
+			if (requiredQuantityText === undefined) {
+				return;
+			}
+			const requiredQuantity = Number(requiredQuantityText.trim());
+			if (!Number.isSafeInteger(requiredQuantity) || requiredQuantity <= 0) {
+				this.dialog.info(this.t('substituteLinks.invalidRequiredQuantity'), this.t('substituteLinks.title'));
+				return;
+			}
+			await this.runSubstituteLinkManager(baseItemId, requiredQuantity, trace);
+		}, trace);
+	}
+
+	private async runSubstituteLinkManager(
+		baseItemId: string,
+		requiredQuantity: number,
+		trace: DiagnosticTrace,
+	): Promise<void> {
+		const document = await this.inventory.exportDocument();
+		const baseItem = document.items.find(item => item.id === baseItemId);
+		if (!baseItem) {
+			this.dialog.info(this.t('substituteLinks.concurrentConflict'), this.t('substituteLinks.title'));
+			return;
+		}
+		const candidates = listConfirmedSubstituteCandidates(
+			baseItem.id,
+			requiredQuantity,
+			document.items,
+			document.substituteLinks,
+		);
+		const action = await this.tracedSelect(
+			trace,
+			'substitute-links.action',
+			[
+				{ value: '__create__', label: this.t('substituteLinks.createAction') },
+				...candidates.map(candidate => ({
+					value: `link:${candidate.link.id}`,
+					label: this.t(
+						'substituteLinks.candidateOption',
+						this.formatItemLine(candidate.item),
+						this.t(`substituteLinks.status.${candidate.status}`),
+					),
+				})),
+			],
+			this.t('substituteLinks.title'),
+			this.t('substituteLinks.candidatePrompt', baseItem.identity.name, requiredQuantity),
+		);
+		if (!action) {
+			return;
+		}
+		if (action === '__create__') {
+			await this.createSubstituteLinkFromDialog(document, baseItem, candidates.map(candidate => candidate.link), trace);
+			return;
+		}
+		const linkId = action.startsWith('link:') ? action.slice(5) : '';
+		const candidate = candidates.find(entry => entry.link.id === linkId);
+		if (!candidate) {
+			this.dialog.info(this.t('substituteLinks.concurrentConflict'), this.t('substituteLinks.title'));
+			return;
+		}
+		const confirmed = await this.dialog.confirm(
+			this.t(
+				'substituteLinks.confirmRemove',
+				this.formatItemLine(baseItem),
+				this.formatItemLine(candidate.item),
+				this.t(`substituteLinks.status.${candidate.status}`),
+				requiredQuantity,
+				candidate.link.note ?? this.t('substituteLinks.noNote'),
+			),
+			this.t('substituteLinks.title'),
+		);
+		if (!confirmed) {
+			return;
+		}
+		try {
+			await this.inventory.removeSubstituteLink(candidate.link.id, candidate.link.revision);
+			trace.info('substitute-links.removed', { linkId: candidate.link.id });
+			this.dialog.info(this.t('substituteLinks.removed'), this.t('substituteLinks.title'));
+		}
+		catch (error) {
+			if (error instanceof SubstituteLinkRevisionConflictError || error instanceof DocumentRevisionConflictError) {
+				this.dialog.info(this.t('substituteLinks.concurrentConflict'), this.t('substituteLinks.title'));
+				return;
+			}
+			throw error;
+		}
+	}
+
+	private async createSubstituteLinkFromDialog(
+		document: Awaited<ReturnType<InventoryService['exportDocument']>>,
+		baseItem: InventoryItem,
+		baseLinks: readonly SubstituteLink[],
+		trace: DiagnosticTrace,
+	): Promise<void> {
+		const linkedItemIds = new Set(baseLinks.map(link => link.itemIdA === baseItem.id ? link.itemIdB : link.itemIdA));
+		const availableTargets = document.items
+			.filter(item => item.id !== baseItem.id && !linkedItemIds.has(item.id))
+			.toSorted((left, right) => left.identity.name.localeCompare(right.identity.name) || left.id.localeCompare(right.id));
+		if (availableTargets.length === 0) {
+			this.dialog.info(this.t('substituteLinks.noAvailableTarget'), this.t('substituteLinks.title'));
+			return;
+		}
+		const targetId = await this.tracedSelect(
+			trace,
+			'substitute-links.target-item',
+			availableTargets.map(item => ({ value: item.id, label: this.formatItemLine(item) })),
+			this.t('substituteLinks.title'),
+			this.t('substituteLinks.chooseTarget', baseItem.identity.name),
+		);
+		const target = availableTargets.find(item => item.id === targetId);
+		if (!target) {
+			return;
+		}
+		const note = await this.tracedInput(trace, 'substitute-links.note', {
+			title: this.t('substituteLinks.title'),
+			label: this.t('substituteLinks.notePrompt'),
+		});
+		if (note === undefined) {
+			return;
+		}
+		if (!await this.dialog.confirm(
+			this.t(
+				'substituteLinks.confirmCreate',
+				this.formatItemLine(baseItem),
+				this.formatItemLine(target),
+				note.trim() || this.t('substituteLinks.noNote'),
+			),
+			this.t('substituteLinks.title'),
+		)) {
+			return;
+		}
+		try {
+			const link = await this.inventory.createSubstituteLink({
+				itemA: { id: baseItem.id, expectedRevision: baseItem.revision },
+				itemB: { id: target.id, expectedRevision: target.revision },
+				expectedDocumentRevision: document.revision,
+				note,
+			});
+			trace.info('substitute-links.created', { linkId: link.id });
+			this.dialog.info(this.t('substituteLinks.created'), this.t('substituteLinks.title'));
+		}
+		catch (error) {
+			if (error instanceof InventoryRevisionConflictError
+				|| error instanceof DocumentRevisionConflictError
+				|| error instanceof SubstituteLinkDuplicateError) {
+				this.dialog.info(this.t('substituteLinks.concurrentConflict'), this.t('substituteLinks.title'));
+				return;
+			}
+			throw error;
+		}
+	}
+
+	private async captureCurrentProjectSnapshot(trace: DiagnosticTrace): Promise<ProjectPlanningOperationResult> {
+		if (!this.currentDesign) {
+			return { status: 'failed', message: this.t('projectPlanning.captureUnsupported') };
+		}
+		const design = await trace.waitFor('project-planning.read-current-design', () => this.currentDesign!.readCurrentDesign());
+		if (design.status !== 'available') {
+			return { status: 'failed', message: this.t('projectPlanning.captureUnavailable') };
+		}
+		if (design.snapshot.components.length === 0) {
+			return { status: 'failed', message: this.t('projectPlanning.captureEmpty') };
+		}
+		const document = await this.inventory.exportDocument();
+		const existing = document.projectSnapshots.find(snapshot => (
+			snapshot.documentKind === design.snapshot.document.kind
+			&& snapshot.documentUuid === design.snapshot.document.uuid
+			&& snapshot.projectUuid === design.snapshot.document.projectUuid
+		));
+		const label = await this.tracedInput(trace, 'project-planning.snapshot-label', {
+			title: this.t('projectPlanning.title'),
+			label: this.t('projectPlanning.snapshotLabelPrompt'),
+			value: existing?.label ?? design.snapshot.document.uuid,
+		});
+		if (label === undefined) {
+			return { status: 'cancelled' };
+		}
+		const rawBoardQuantity = await this.tracedInput(trace, 'project-planning.board-quantity', {
+			title: this.t('projectPlanning.title'),
+			label: this.t('designStockCheck.boardQuantityPrompt'),
+			type: 'number',
+			value: existing?.boardQuantity ?? 1,
+			min: 1,
+			step: 1,
+		});
+		if (rawBoardQuantity === undefined) {
+			return { status: 'cancelled' };
+		}
+		const boardQuantity = Number(rawBoardQuantity.trim());
+		if (!Number.isSafeInteger(boardQuantity) || boardQuantity <= 0) {
+			return { status: 'failed', message: this.t('designStockCheck.boardQuantityInvalid') };
+		}
+		const candidate = await createProjectSnapshot({
+			id: existing?.id ?? `snapshot-${createSessionToken()}`,
+			label,
+			boardQuantity,
+			capturedAt: new Date().toISOString(),
+			source: design.snapshot,
+		});
+		if (existing) {
+			const difference = diffProjectSnapshots(existing, candidate);
+			const changeCount = difference.demand.entries.length
+				+ difference.demand.unmatchedBefore.length
+				+ difference.demand.unmatchedAfter.length;
+			if (!difference.sourceChanged
+				&& !difference.boardQuantityChanged
+				&& existing.label === candidate.label) {
+				return { status: 'cancelled', message: this.t('projectPlanning.noChanges') };
+			}
+			if (!await this.dialog.confirm(
+				this.t(
+					'projectPlanning.confirmResync',
+					changeCount,
+					existing.boardQuantity,
+					candidate.boardQuantity,
+					this.projectSnapshotDiffSummary(difference),
+				),
+				this.t('projectPlanning.title'),
+			)) {
+				return { status: 'cancelled' };
+			}
+			const { id: _id, revision: _revision, ...replacement } = candidate;
+			await this.inventory.replaceProjectSnapshot(existing.id, existing.revision, replacement);
+		}
+		else {
+			const { revision: _revision, ...capture } = candidate;
+			await this.inventory.captureProjectSnapshot(capture);
+		}
+		return {
+			status: 'succeeded',
+			message: this.t(existing ? 'projectPlanning.snapshotUpdated' : 'projectPlanning.snapshotCaptured'),
+			snapshot: this.createProjectPlanningSnapshot(await this.inventory.exportDocument()),
+		};
+	}
+
+	private createProjectPlanningSnapshot(document: Awaited<ReturnType<InventoryService['exportDocument']>>): ProjectPlanningPanelSnapshot {
+		return {
+			snapshots: document.projectSnapshots,
+			procurement: createProcurementSuggestions(analyzeProjectDemand(document.projectSnapshots, document.items)),
+			purchases: document.purchaseRecords,
+		};
+	}
+
+	private projectSnapshotDiffSummary(difference: ReturnType<typeof diffProjectSnapshots>): string {
+		const lines = difference.demand.entries.slice(0, 8).map((entry) => {
+			const typeKey = entry.type === 'added'
+				? 'bomDiff.change.added'
+				: entry.type === 'removed'
+					? 'bomDiff.change.removed'
+					: entry.type === 'quantity-increased'
+						? 'bomDiff.change.quantityIncreased'
+						: entry.type === 'quantity-decreased'
+							? 'bomDiff.change.quantityDecreased'
+							: 'bomDiff.change.identityChanged';
+			const delta = entry.quantityDelta === undefined
+				? ''
+				: ` (${entry.quantityDelta > 0 ? '+' : ''}${entry.quantityDelta})`;
+			return `${this.t(typeKey)}: ${entry.lcscPartNumber}${delta}`;
+		});
+		if (difference.demand.unmatchedBefore.length > 0) {
+			lines.push(`${this.t('bomDiff.review.beforeUnmatched')}: ${difference.demand.unmatchedBefore.length}`);
+		}
+		if (difference.demand.unmatchedAfter.length > 0) {
+			lines.push(`${this.t('bomDiff.review.afterUnmatched')}: ${difference.demand.unmatchedAfter.length}`);
+		}
+		if (difference.demand.entries.length > 8) {
+			lines.push(this.t('projectPlanning.moreChanges', difference.demand.entries.length - 8));
+		}
+		return lines.join('\n') || this.t('projectPlanning.noDemandChanges');
+	}
+
+	private async runBomStockOut(trace: DiagnosticTrace): Promise<void> {
+		if (!this.bomMappingPanel || !this.bomStockOutPanel) {
+			this.dialog.info(this.t('bomStockOut.unsupported'), this.t('bomStockOut.title'));
+			return;
+		}
+		const pickedFiles = await trace.waitFor('bom-stock-out.pick-file', () => this.files.pickBomFiles());
+		if (!pickedFiles || pickedFiles.length === 0) {
+			return;
+		}
+		if (pickedFiles.length !== 1) {
+			this.dialog.info(this.t('bomStockOut.selectOneFile'), this.t('bomStockOut.title'));
+			return;
+		}
+		let parsed: ParsedBomFile;
+		try {
+			parsed = readBomFile(pickedFiles[0].name, pickedFiles[0].content);
+		}
+		catch (error) {
+			this.dialog.info(this.t('bomAnalysis.readFailed', errorMessage(error)), this.t('bomStockOut.title'));
+			return;
+		}
+		if (parsed.sheets.length === 0) {
+			this.dialog.info(this.t('bomAnalysis.emptyFile'), this.t('bomStockOut.title'));
+			return;
+		}
+		const mapping = await this.bomMappingPanel.open({ mode: 'stock-check', files: [parsed] }, trace);
+		if (mapping.status !== 'submitted') {
+			return;
+		}
+		const selected = mapping.files.find(entry => entry.fileIndex === 0);
+		const sheet = selected ? parsed.sheets[selected.sheetIndex] : undefined;
+		if (!selected || !sheet) {
+			this.dialog.info(this.t('bomDiff.mappingFailed'), this.t('bomStockOut.title'));
+			return;
+		}
+		let mapped: BomMappingResult;
+		try {
+			mapped = mapBomRows(sheet, selected.headerRowIndex, selected.mapping);
+		}
+		catch (error) {
+			trace.error('bom-stock-out.mapping.failed', { error: errorMessage(error) });
+			this.dialog.info(this.t('bomDiff.mappingFailed'), this.t('bomStockOut.title'));
+			return;
+		}
+		if (mapped.issues.length > 0 || mapped.demands.length === 0) {
+			this.dialog.info(
+				this.t('bomStockOut.mappingBlocked', mapped.demands.length, mapped.issues.length),
+				this.t('bomStockOut.title'),
+			);
+			return;
+		}
+		const rawBoardQuantity = await this.tracedInput(trace, 'bom-stock-out.board-quantity', {
+			title: this.t('bomStockOut.title'),
+			label: this.t('designStockCheck.boardQuantityPrompt'),
+			type: 'number',
+			value: 1,
+			min: 1,
+			step: 1,
+		});
+		if (rawBoardQuantity === undefined) {
+			return;
+		}
+		const boardQuantity = Number(rawBoardQuantity.trim());
+		if (!Number.isSafeInteger(boardQuantity) || boardQuantity <= 0) {
+			this.dialog.info(this.t('designStockCheck.boardQuantityInvalid'), this.t('bomStockOut.title'));
+			return;
+		}
+		const note = await this.tracedInput(trace, 'bom-stock-out.note', {
+			title: this.t('bomStockOut.title'),
+			label: this.t('bomStockOut.notePrompt'),
+		});
+		if (note === undefined) {
+			return;
+		}
+		const [document, sourceFingerprint] = await Promise.all([
+			this.inventory.exportDocument(),
+			fingerprintBomSource(pickedFiles[0].content),
+		]);
+		const prepared = prepareBomStockOut({
+			demands: mapped.demands,
+			inventory: document.items,
+			boardQuantity,
+			sourceFingerprint,
+			sourceName: pickedFiles[0].name,
+			note,
+		});
+		trace.info('bom-stock-out.prepared', {
+			lineCount: prepared.lines.length,
+			issueCount: prepared.issues.length,
+			status: prepared.status,
+		});
+		if (prepared.status !== 'ready') {
+			const issueCounts = new Map<string, number>();
+			for (const issue of prepared.issues) {
+				issueCounts.set(issue.code, (issueCounts.get(issue.code) ?? 0) + 1);
+			}
+			this.dialog.info(
+				this.t(
+					'bomStockOut.preflightBlocked',
+					prepared.issues.length,
+					[...issueCounts].map(([code, count]) => `${this.t(`bomStockOut.issue.${code}`)}: ${count}`).join('\n'),
+				),
+				this.t('bomStockOut.title'),
+			);
+			return;
+		}
+		let stockOutInput = prepared.input;
+		let preview = await this.inventory.previewBomStockOut(stockOutInput);
+		if (preview.status === 'duplicate') {
+			const existingBatchId = preview.issues.find(issue => issue.code === 'duplicate-batch')?.existingBatchId ?? '-';
+			if (!await this.dialog.confirm(
+				this.t('bomStockOut.confirmNewProductionRun', existingBatchId),
+				this.t('bomStockOut.title'),
+			)) {
+				return;
+			}
+			stockOutInput = { ...stockOutInput, productionRunId: `run-${createSessionToken()}` };
+			preview = await this.inventory.previewBomStockOut(stockOutInput);
+		}
+		const itemById = new Map(document.items.map(item => [item.id, item]));
+		await this.bomStockOutPanel.open({
+			sourceName: pickedFiles[0].name,
+			boardQuantity,
+			itemSummaries: prepared.lines.map((line, lineIndex) => {
+				const item = itemById.get(line.itemId)!;
+				return {
+					lineIndex,
+					itemId: line.itemId,
+					requestedQuantity: line.requiredQuantity,
+					designators: line.designators,
+					identity: {
+						name: item.identity.name,
+						lcscPartNumber: item.identity.lcscPartNumber,
+						manufacturerPartNumber: item.identity.manufacturerPartNumber,
+						manufacturer: item.identity.manufacturer,
+						package: item.identity.package,
+					},
+				};
+			}),
+			preview,
+		}, async (action) => {
+			if (action.type === 'close') {
+				return { status: 'succeeded' };
+			}
+			try {
+				const result = await this.inventory.commitBomStockOut(stockOutInput, preview.documentRevision);
+				trace.info('bom-stock-out.committed', {
+					lineCount: result.transactions.length,
+					documentRevision: result.documentRevision,
+				});
+				return { status: 'succeeded', message: this.t('bomStockOut.completed', result.transactions.length) };
+			}
+			catch (error) {
+				if (error instanceof DocumentRevisionConflictError || error instanceof BomStockOutBlockedError) {
+					return { status: 'failed', message: this.t('bomStockOut.concurrentConflict') };
+				}
+				trace.error('bom-stock-out.commit.failed', { error: errorMessage(error) });
+				return { status: 'failed', message: this.t('bomStockOut.operationError') };
+			}
+		}, trace);
+	}
+
+	private async runBomVersionComparison(trace: DiagnosticTrace): Promise<void> {
+		if (!this.bomMappingPanel || !this.bomDiffPanel) {
+			this.dialog.info(this.t('bomDiff.unsupported'), this.t('bomDiff.title'));
+			return;
+		}
+		const pickedFiles = await trace.waitFor('bom-diff.pick-files', () => this.files.pickBomFiles());
+		if (!pickedFiles || pickedFiles.length === 0) {
+			return;
+		}
+		if (pickedFiles.length !== 2) {
+			this.dialog.info(this.t('bomDiff.selectTwoFiles'), this.t('bomDiff.title'));
+			return;
+		}
+		const parsedFiles: ParsedBomFile[] = [];
+		try {
+			for (const file of pickedFiles) {
+				const parsed = readBomFile(file.name, file.content);
+				if (parsed.sheets.length === 0) {
+					this.dialog.info(this.t('bomAnalysis.emptyFile'), this.t('bomDiff.title'));
+					return;
+				}
+				parsedFiles.push(parsed);
+			}
+		}
+		catch (error) {
+			this.dialog.info(this.t('bomAnalysis.readFailed', errorMessage(error)), this.t('bomDiff.title'));
+			return;
+		}
+		const selection = await this.bomMappingPanel.open({ mode: 'compare', files: parsedFiles }, trace);
+		if (selection.status !== 'submitted') {
+			return;
+		}
+		let mappedFiles: BomMappingResult[];
+		try {
+			mappedFiles = parsedFiles.map((file, fileIndex) => {
+				const selected = selection.files.find(entry => entry.fileIndex === fileIndex);
+				const sheet = selected ? file.sheets[selected.sheetIndex] : undefined;
+				if (!selected || !sheet) {
+					throw new Error('BOM mapping selection is incomplete.');
+				}
+				return mapBomRows(sheet, selected.headerRowIndex, selected.mapping);
+			});
+		}
+		catch (error) {
+			trace.error('bom-diff.mapping.failed', { error: errorMessage(error) });
+			this.dialog.info(this.t('bomDiff.mappingFailed'), this.t('bomDiff.title'));
+			return;
+		}
+		const issueCount = mappedFiles.reduce((count, mapped) => count + mapped.issues.length, 0);
+		trace.info('bom-diff.mapping-result', {
+			beforeDemandCount: mappedFiles[0].demands.length,
+			afterDemandCount: mappedFiles[1].demands.length,
+			issueCount,
+		});
+		if (issueCount > 0 && !await this.dialog.confirm(
+			this.t(
+				'bomDiff.mappingIssues',
+				mappedFiles[0].demands.length,
+				mappedFiles[1].demands.length,
+				issueCount,
+			),
+			this.t('bomDiff.title'),
+		)) {
+			return;
+		}
+		const result = diffNormalizedBoms(mappedFiles[0].demands, mappedFiles[1].demands);
+		trace.info('bom-diff.report', {
+			changeCount: result.entries.length,
+			unmatchedBeforeCount: result.unmatchedBefore.length,
+			unmatchedAfterCount: result.unmatchedAfter.length,
+		});
+		await this.bomDiffPanel.open({
+			result,
+			beforeFileName: parsedFiles[0].fileName,
+			afterFileName: parsedFiles[1].fileName,
+			beforeIssues: mappedFiles[0].issues,
+			afterIssues: mappedFiles[1].issues,
+		}, async (action) => {
+			if (action.type === 'close') {
+				return { status: 'succeeded' };
+			}
+			try {
+				await this.files.saveCsv(
+					createBomDiffCsv(result, this.bomDiffCsvLabels()),
+					`jlceda-inventory-bom-diff-${new Date().toISOString().slice(0, 10)}.csv`,
+				);
+				return { status: 'succeeded', message: this.t('bomDiff.exportSucceeded') };
+			}
+			catch (error) {
+				trace.error('bom-diff.export.failed', { error: errorMessage(error) });
+				return { status: 'failed', message: this.t('bomDiff.operationError') };
+			}
+		}, trace);
+	}
+
+	private async offerExternalBomStockCheck(reason: string, trace: DiagnosticTrace): Promise<void> {
+		if (!this.bomMappingPanel || !this.designStockCheckPanel) {
+			this.dialog.info(reason, this.t('designStockCheck.title'));
+			return;
+		}
+		if (await this.dialog.confirm(
+			`${reason}\n\n${this.t('designStockCheck.offerExternalBom')}`,
+			this.t('designStockCheck.title'),
+		)) {
+			await this.runExternalBomStockCheck(trace);
+		}
+	}
+
+	private async runExternalBomStockCheck(trace: DiagnosticTrace): Promise<void> {
+		if (!this.bomMappingPanel || !this.designStockCheckPanel) {
+			this.dialog.info(this.t('bomAnalysis.unsupported'), this.t('bomAnalysis.stockCheckTitle'));
+			return;
+		}
+		const pickedFiles = await trace.waitFor('bom-stock-check.pick-file', () => this.files.pickBomFiles());
+		if (!pickedFiles || pickedFiles.length === 0) {
+			return;
+		}
+		if (pickedFiles.length !== 1) {
+			this.dialog.info(this.t('bomAnalysis.selectOneFile'), this.t('bomAnalysis.stockCheckTitle'));
+			return;
+		}
+		let parsed: ParsedBomFile;
+		try {
+			parsed = readBomFile(pickedFiles[0].name, pickedFiles[0].content);
+		}
+		catch (error) {
+			this.dialog.info(this.t('bomAnalysis.readFailed', errorMessage(error)), this.t('bomAnalysis.stockCheckTitle'));
+			return;
+		}
+		if (parsed.sheets.length === 0) {
+			this.dialog.info(this.t('bomAnalysis.emptyFile'), this.t('bomAnalysis.stockCheckTitle'));
+			return;
+		}
+		const mapping = await this.bomMappingPanel.open({ mode: 'stock-check', files: [parsed] }, trace);
+		if (mapping.status !== 'submitted') {
+			return;
+		}
+		const selection = mapping.files[0];
+		const sheet = parsed.sheets[selection.sheetIndex];
+		const mapped = mapBomRows(sheet, selection.headerRowIndex, selection.mapping);
+		if (!await this.confirmBomMappingIssues(mapped.demands.length, mapped.issues, trace)) {
+			return;
+		}
+		const rawBoardQuantity = await this.tracedInput(trace, 'bom-stock-check.board-quantity', {
+			title: this.t('bomAnalysis.stockCheckTitle'),
+			label: this.t('designStockCheck.boardQuantityPrompt'),
+			type: 'number',
+			value: 1,
+			min: 1,
+			step: 1,
+		});
+		if (rawBoardQuantity === undefined) {
+			return;
+		}
+		const boardQuantity = Number(rawBoardQuantity.trim());
+		if (!Number.isSafeInteger(boardQuantity) || boardQuantity <= 0) {
+			this.dialog.info(this.t('designStockCheck.boardQuantityInvalid'), this.t('bomAnalysis.stockCheckTitle'));
+			return;
+		}
+		const inventory = await this.inventory.exportDocument();
+		const report = checkDesignStock({
+			components: mapped.demands.map(bomDemandToStockComponent),
+			inventory: inventory.items,
+			boardQuantity,
+		});
+		await this.designStockCheckPanel.open({ report, source: 'file' }, async (action) => {
+			if (action.type === 'close') {
+				return { status: 'succeeded' };
+			}
+			try {
+				await this.files.saveCsv(
+					createDesignStockShortageCsv(report, this.designStockCsvLabels()),
+					`jlceda-inventory-shortage-${new Date().toISOString().slice(0, 10)}.csv`,
+				);
+				return { status: 'succeeded', message: this.t('designStockCheck.exportSucceeded') };
+			}
+			catch (error) {
+				trace.error('bom-stock-check.export.failed', { error: errorMessage(error) });
+				return { status: 'failed', message: this.t('designStockCheck.operationError') };
+			}
+		}, trace);
+	}
+
+	private async confirmBomMappingIssues(
+		demandCount: number,
+		issues: readonly BomRowIssue[],
+		trace: DiagnosticTrace,
+	): Promise<boolean> {
+		trace.info('bom-analysis.mapping-result', { demandCount, issueCount: issues.length });
+		if (demandCount === 0) {
+			this.dialog.info(this.t('bomAnalysis.noValidRows'), this.t('bomAnalysis.stockCheckTitle'));
+			return false;
+		}
+		return issues.length === 0 || this.dialog.confirm(
+			this.t('bomAnalysis.mappingIssues', demandCount, issues.length),
+			this.t('bomAnalysis.stockCheckTitle'),
+		);
+	}
+
+	public configureAutomaticBackup(): Promise<void> {
+		const trace = this.diagnostics.start('configure-automatic-backup', false);
+		return this.execute(async () => {
+			if (!this.automaticBackup) {
+				this.dialog.info(this.t('autoBackup.unsupported'), this.t('autoBackup.title'));
+				return;
+			}
+			const settings = this.automaticBackup.getSettings();
+			let action: 'disable' | 'enable' | 'test' | 'use-default';
+			if (!settings.path) {
+				action = 'use-default';
+			}
+			else {
+				const options: SelectOption[] = settings.enabled
+					? [
+							{ value: 'use-default', label: this.t('autoBackup.useDefault') },
+							{ value: 'test', label: this.t('autoBackup.test') },
+							{ value: 'disable', label: this.t('autoBackup.disable') },
+						]
+					: [
+							{ value: 'enable', label: this.t('autoBackup.reenable') },
+							{ value: 'use-default', label: this.t('autoBackup.useDefault') },
+							{ value: 'test', label: this.t('autoBackup.test') },
+						];
+				const selectedAction = await this.tracedSelect(
+					trace,
+					'auto-backup.action',
+					options,
+					this.t('autoBackup.title'),
+					this.t('autoBackup.status', settings.enabled ? this.t('autoBackup.enabled') : this.t('autoBackup.disabled'), settings.path),
+					settings.enabled ? 'test' : 'enable',
+				);
+				if (!selectedAction) {
+					return;
+				}
+				action = selectedAction as typeof action;
+			}
+			if (action === 'disable') {
+				await this.automaticBackup.disable();
+				this.dialog.info(this.t('autoBackup.disabledMessage'), this.t('autoBackup.title'));
+				return;
+			}
+			let path = settings.path;
+			if (action === 'use-default') {
+				path = await this.prepareDefaultAutomaticBackupPath(trace);
+			}
+			if (!path) {
+				return;
+			}
+			const document = await this.inventory.exportDocument();
+			const result = await trace.waitFor('auto-backup.test-write', () => this.automaticBackup!.test(document, path));
+			if (result.status !== 'succeeded') {
+				const failure = result.status === 'failed' ? result.failure : 'api-unavailable';
+				this.dialog.info(this.t(automaticBackupFailureKey(failure)), this.t('autoBackup.title'));
+				return;
+			}
+			if (action === 'use-default' || action === 'enable') {
+				await this.automaticBackup.configure(path);
+				this.dialog.info(this.t('autoBackup.enabledMessage', path), this.t('autoBackup.title'));
+				return;
+			}
+			this.dialog.info(this.t('autoBackup.testSucceeded', path), this.t('autoBackup.title'));
+		}, trace);
+	}
+
+	private async prepareDefaultAutomaticBackupPath(trace: DiagnosticTrace): Promise<string | undefined> {
+		let folder: string | undefined;
+		try {
+			folder = await trace.waitFor('auto-backup.default-folder', () => this.automaticBackup!.getDefaultFolder());
+		}
+		catch (error) {
+			const invalidHostPath = error instanceof InvalidAutomaticBackupFolderError;
+			trace.warn('auto-backup.default-folder-unavailable', {
+				error: errorMessage(error),
+				reason: invalidHostPath ? 'invalid-host-path' : 'host-api-error',
+			});
+			this.dialog.info(
+				this.t(invalidHostPath ? 'autoBackup.invalidDefaultFolder' : 'autoBackup.unsupported'),
+				this.t('autoBackup.title'),
+			);
+			return undefined;
+		}
+		if (!folder) {
+			trace.warn('auto-backup.default-folder-unavailable', { reason: 'api-unavailable' });
+			this.dialog.info(this.t('autoBackup.unsupported'), this.t('autoBackup.title'));
+			return undefined;
+		}
+		trace.info('auto-backup.default-folder.resolved', automaticBackupPathDiagnostics(folder));
+		try {
+			const path = await trace.waitFor(
+				'auto-backup.prepare-path',
+				() => this.automaticBackup!.prepareBackupPath(folder),
+			);
+			trace.info('auto-backup.path.prepared', automaticBackupPathDiagnostics(path));
+			return path;
+		}
+		catch (error) {
+			trace.warn('auto-backup.prepare-path-failed', { error: errorMessage(error) });
+			this.dialog.info(this.t('autoBackup.writeFailed'), this.t('autoBackup.title'));
+			return undefined;
+		}
+	}
+
+	public restoreInventoryBackup(): Promise<void> {
+		const trace = this.diagnostics.start('restore-inventory-backup', false);
+		return this.execute(async () => {
+			let recoverySnapshot: Awaited<ReturnType<InventoryService['loadRecoverySnapshot']>>;
+			try {
+				recoverySnapshot = await this.inventory.loadRecoverySnapshot();
+			}
+			catch (error) {
+				trace.warn('backup-restore.recovery-snapshot-unavailable', { error: errorMessage(error) });
+				this.dialog.info(this.t('backup.restore.recoveryUnavailable'), this.t('backup.restore.title'));
+			}
+			const sources: SelectOption[] = [{ value: 'file', label: this.t('backup.restore.fileSource') }];
+			if (recoverySnapshot) {
+				sources.push({ value: 'recovery', label: this.t('backup.restore.recoverySource') });
+			}
+			const source = sources.length === 1
+				? 'file'
+				: await this.tracedSelect(
+						trace,
+						'backup-restore.source',
+						sources,
+						this.t('backup.restore.title'),
+						this.t('backup.restore.sourcePrompt'),
+						'file',
+					);
+			if (!source) {
+				return;
+			}
+
+			let rawBackup: unknown;
+			let sourceLabel: string;
+			if (source === 'recovery') {
+				rawBackup = recoverySnapshot;
+				sourceLabel = this.t('backup.restore.recoverySource');
+			}
+			else {
+				const picked = await this.files.pickInventoryBackup(MAX_INVENTORY_BACKUP_TEXT_LENGTH);
+				if (!picked) {
+					return;
+				}
+				rawBackup = picked.content;
+				sourceLabel = picked.name;
+			}
+
+			let validated: ReturnType<typeof validateInventoryBackup>;
+			try {
+				validated = validateInventoryBackup(rawBackup);
+			}
+			catch (error) {
+				if (error instanceof InventoryBackupValidationError) {
+					trace.warn('backup-restore.validation-failed', { code: error.code, path: error.path });
+					this.dialog.info(
+						this.t('backup.restore.invalid', error.code, error.path || '-'),
+						this.t('backup.restore.title'),
+					);
+					return;
+				}
+				throw error;
+			}
+			const current = await this.inventory.exportDocument();
+			const { metadata } = validated;
+			if (!await this.dialog.confirm(
+				this.t(
+					'backup.restore.confirm',
+					sourceLabel,
+					metadata.sourceSchemaVersion,
+					metadata.updatedAt,
+					metadata.itemCount,
+					metadata.categoryCount,
+					metadata.orderImportBatchCount,
+					metadata.transactionCount,
+					metadata.stockOutBatchCount,
+					metadata.projectSnapshotCount,
+					metadata.purchaseRecordCount,
+					metadata.substituteLinkCount,
+					metadata.revision,
+					current.revision,
+				),
+				this.t('backup.restore.title'),
+			)) {
+				return;
+			}
+			try {
+				const restored = await trace.waitFor('backup-restore.replace', () => this.inventory.restoreDocument(
+					validated.document,
+					current.revision,
+				));
+				this.dialog.info(
+					this.t('backup.restore.completed', restored.items.length, restored.revision),
+					this.t('backup.restore.title'),
+				);
+			}
+			catch (error) {
+				if (error instanceof DocumentRevisionConflictError) {
+					this.dialog.info(this.t('backup.restore.concurrentConflict'), this.t('backup.restore.title'));
+					return;
+				}
+				throw error;
+			}
+		}, trace);
+	}
+
+	private designStockCsvLabels(): DesignStockCsvLabels {
+		return {
+			partNumber: this.t('designStockCheck.column.partNumber'),
+			name: this.t('designStockCheck.column.name'),
+			manufacturerPartNumber: this.t('designStockCheck.column.manufacturerPart'),
+			package: this.t('designStockCheck.column.package'),
+			designators: this.t('designStockCheck.column.designators'),
+			unitQuantity: this.t('designStockCheck.column.unitQuantity'),
+			boardQuantity: this.t('designStockCheck.boardQuantity'),
+			requiredQuantity: this.t('designStockCheck.column.requiredQuantity'),
+			availableQuantity: this.t('designStockCheck.column.availableQuantity'),
+			shortageQuantity: this.t('designStockCheck.column.shortageQuantity'),
+			status: this.t('designStockCheck.column.status'),
+			emptyValue: this.t('inventoryItem.emptyValue'),
+			statuses: {
+				'sufficient': this.t('designStockCheck.status.sufficient'),
+				'insufficient': this.t('designStockCheck.status.insufficient'),
+				'review-required': this.t('designStockCheck.status.reviewRequired'),
+				'stocktake-required': this.t('designStockCheck.status.stocktakeRequired'),
+				'inventory-missing': this.t('designStockCheck.status.inventoryMissing'),
+				'identity-unmatched': this.t('designStockCheck.status.identityUnmatched'),
+			},
+		};
+	}
+
+	private replenishmentCsvLabels(): ReplenishmentCsvLabels {
+		return {
+			partNumber: this.t('part.lcscLabel'),
+			name: this.t('part.nameLabel'),
+			manufacturerPartNumber: this.t('part.manufacturerPartLabel'),
+			package: this.t('part.packageLabel'),
+			quantity: this.t('inventory.quantityLabel'),
+			precision: this.t('inventoryItem.precision'),
+			minimumQuantity: this.t('inventoryItem.minimumQuantity'),
+			status: this.t('inventoryOverview.columnReplenishment'),
+			location: this.t('inventory.locationLabel'),
+			note: this.t('inventory.noteLabel'),
+			emptyValue: this.t('inventoryItem.emptyValue'),
+			precisions: {
+				exact: this.t('inventory.exact'),
+				estimated: this.t('inventory.estimated'),
+				unknown: this.t('inventory.unknown'),
+			},
+			statuses: {
+				'depleted': this.t('inventoryItem.replenishment.depleted'),
+				'low': this.t('inventoryItem.replenishment.low'),
+				'needs-count': this.t('inventoryItem.replenishment.needsCount'),
+				'not-configured': this.t('inventoryItem.replenishment.notConfigured'),
+				'possibly-low': this.t('inventoryItem.replenishment.possiblyLow'),
+				'sufficient': this.t('inventoryItem.replenishment.sufficient'),
+			},
+		};
+	}
+
+	private bomDiffCsvLabels(): BomDiffCsvLabels {
+		return {
+			type: this.t('bomDiff.column.changeType'),
+			lcscPartNumber: this.t('bomDiff.column.partNumber'),
+			beforeQuantity: this.t('bomDiff.column.beforeQuantity'),
+			afterQuantity: this.t('bomDiff.column.afterQuantity'),
+			quantityDelta: this.t('bomDiff.column.quantityDelta'),
+			beforeDesignators: this.t('bomDiff.column.beforeDesignators'),
+			afterDesignators: this.t('bomDiff.column.afterDesignators'),
+			beforeName: this.t('bomDiff.column.beforeName'),
+			afterName: this.t('bomDiff.column.afterName'),
+			beforeManufacturerPartNumber: this.t('bomDiff.column.beforeManufacturerPart'),
+			afterManufacturerPartNumber: this.t('bomDiff.column.afterManufacturerPart'),
+			beforeManufacturer: this.t('bomDiff.column.beforeManufacturer'),
+			afterManufacturer: this.t('bomDiff.column.afterManufacturer'),
+			beforePackage: this.t('bomDiff.column.beforePackage'),
+			afterPackage: this.t('bomDiff.column.afterPackage'),
+			identityChanges: this.t('bomDiff.column.identityChanges'),
+			sourceSheet: this.t('bomDiff.column.sourceSheet'),
+			sourceRow: this.t('bomDiff.column.sourceRow'),
+			emptyValue: this.t('inventoryItem.emptyValue'),
+			types: {
+				'added': this.t('bomDiff.change.added'),
+				'removed': this.t('bomDiff.change.removed'),
+				'quantity-increased': this.t('bomDiff.change.quantityIncreased'),
+				'quantity-decreased': this.t('bomDiff.change.quantityDecreased'),
+				'identity-changed': this.t('bomDiff.change.identityChanged'),
+				'unmatched-before': this.t('bomDiff.review.beforeUnmatched'),
+				'unmatched-after': this.t('bomDiff.review.afterUnmatched'),
+			},
+			identityFields: {
+				name: this.t('bomDiff.identity.name'),
+				manufacturerPartNumber: this.t('bomDiff.identity.manufacturerPartNumber'),
+				manufacturer: this.t('bomDiff.identity.manufacturer'),
+				package: this.t('bomDiff.identity.package'),
+			},
+		};
+	}
+
+	private procurementCsvLabels(): ProcurementCsvLabels {
+		return {
+			lcscPartNumber: this.t('designStockCheck.column.partNumber'),
+			name: this.t('designStockCheck.column.name'),
+			manufacturerPartNumber: this.t('designStockCheck.column.manufacturerPart'),
+			package: this.t('designStockCheck.column.package'),
+			requiredQuantity: this.t('designStockCheck.column.requiredQuantity'),
+			availableQuantity: this.t('designStockCheck.column.availableQuantity'),
+			suggestedQuantity: this.t('projectPlanning.column.suggestedQuantity'),
+			status: this.t('designStockCheck.column.status'),
+			sources: this.t('projectPlanning.column.sources'),
+			emptyValue: this.t('inventoryItem.emptyValue'),
+			boardQuantityPrefix: this.t('projectPlanning.boardQuantityPrefix'),
+			statuses: {
+				'sufficient': this.t('designStockCheck.status.sufficient'),
+				'insufficient': this.t('designStockCheck.status.insufficient'),
+				'review-required': this.t('designStockCheck.status.reviewRequired'),
+				'stocktake-required': this.t('designStockCheck.status.stocktakeRequired'),
+				'inventory-missing': this.t('designStockCheck.status.inventoryMissing'),
+				'identity-unmatched': this.t('designStockCheck.status.identityUnmatched'),
+			},
+		};
+	}
+
+	private async chooseSelectedDesignComponent(
+		components: readonly DesignComponentSnapshot[],
+	): Promise<DesignComponentSnapshot | undefined> {
+		if (components.length === 1) {
+			return components[0];
+		}
+		const selectedPrimitiveId = await this.dialog.select(
+			components.map(component => ({
+				value: component.primitiveId,
+				label: formatSelectedDesignComponent(component),
+			})),
+			this.t('selectedInventory.title'),
+			this.t('selectedInventory.chooseComponent'),
+		);
+		return components.find(component => component.primitiveId === selectedPrimitiveId);
 	}
 
 	public importEdaCategories(): Promise<void> {
@@ -188,30 +1572,37 @@ export class NativeInventoryController {
 
 	private openInventoryCreatePanel(mode: InventoryCreateMode): Promise<void> {
 		const trace = this.diagnostics.start(mode === 'lcsc' ? 'add-lcsc' : 'add-custom');
-		return this.execute(async () => {
-			const document = await this.inventory.exportDocument();
-			const session: InventoryCreateSession = {
-				categories: document.categories,
-				duplicateMatches: new Map(),
-				lookupStatuses: new Map(),
-				marketplaceVisits: new Set(),
-				modelMatches: new Map(),
-			};
-			const result = await this.inventoryCreatePanel.open({
-				mode,
-				categories: document.categories,
-				locationOptions: collectLocationOptions(document.items),
-			}, action => this.handleInventoryCreateAction(action, session, trace), trace);
-			if (result.status === 'cancelled') {
-				trace.info('workflow.cancelled', { step: 'inventory-create-panel' });
-				return;
-			}
-			if (!session.savedItem) {
-				throw new Error('The inventory create panel completed without a saved inventory item.');
-			}
-			this.showSavedItem(session.savedItem);
-			trace.info('workflow.success', { merged: result.merged });
-		}, trace);
+		return this.execute(() => this.runInventoryCreatePanel(mode, undefined, trace), trace);
+	}
+
+	private async runInventoryCreatePanel(
+		mode: InventoryCreateMode,
+		initial: Partial<InventoryCreateFormState> | undefined,
+		trace: DiagnosticTrace,
+	): Promise<void> {
+		const document = await this.inventory.exportDocument();
+		const session: InventoryCreateSession = {
+			categories: document.categories,
+			duplicateMatches: new Map(),
+			lookupStatuses: new Map(),
+			marketplaceVisits: new Set(),
+			modelMatches: new Map(),
+		};
+		const result = await this.inventoryCreatePanel.open({
+			mode,
+			initial,
+			categories: document.categories,
+			locationOptions: collectLocationOptions(document.items),
+		}, action => this.handleInventoryCreateAction(action, session, trace), trace);
+		if (result.status === 'cancelled') {
+			trace.info('workflow.cancelled', { step: 'inventory-create-panel' });
+			return;
+		}
+		if (!session.savedItem) {
+			throw new Error('The inventory create panel completed without a saved inventory item.');
+		}
+		this.showSavedItem(session.savedItem);
+		trace.info('workflow.success', { merged: result.merged });
 	}
 
 	private async handleInventoryCreateAction(
@@ -269,7 +1660,16 @@ export class NativeInventoryController {
 				|| pending.draftFingerprint !== inventoryCreateDraftFingerprint(action.draft, action.modelToken, action.form.marketplaceConfirmed)) {
 				return { stage: 'failed', message: this.t('inventory.concurrentConflict') };
 			}
-			const result = await trace.waitFor('inventory.merge', () => this.inventory.createItem(pending.input, pending.existing));
+			let result: Awaited<ReturnType<InventoryService['createItem']>>;
+			try {
+				result = await trace.waitFor('inventory.merge', () => this.inventory.createItem(pending.input, pending.existing));
+			}
+			catch (error) {
+				if (error instanceof InventoryItemSubstituteReferenceError) {
+					return { stage: 'failed', message: this.t('inventory.substituteReference') };
+				}
+				throw error;
+			}
 			if (result.status !== 'merged') {
 				return { stage: 'failed', message: this.t('inventory.concurrentConflict') };
 			}
@@ -325,7 +1725,11 @@ export class NativeInventoryController {
 			quantity: draft.quantity,
 			precision: draft.precision,
 			state: draft.state,
+			minimumQuantity: draft.minimumQuantity,
+			favorite: draft.favorite,
 			location: draft.location,
+			datasheetUrl: draft.datasheetUrl,
+			structuredLocation: draft.structuredLocation,
 			note: draft.note,
 			source: pendingModel ? 'catalog' : marketplaceReference ? 'marketplace' : 'manual',
 		};
@@ -438,6 +1842,11 @@ export class NativeInventoryController {
 				case 'open-marketplace':
 					await this.handleInventoryAction(item, 'marketplace', locationOptions);
 					break;
+				case 'open-datasheet':
+					if (!item?.datasheetUrl || !this.externalLinks?.open(item.datasheetUrl)) {
+						return { status: 'failed', message: this.t('inventoryItem.datasheetOpenFailed') };
+					}
+					break;
 				case 'retry-model':
 					return this.prepareOverviewModelMatch(item!, pendingModelMatches);
 				case 'attach-model': {
@@ -464,14 +1873,16 @@ export class NativeInventoryController {
 					return { status: 'succeeded', message: this.t('edaModel.attached') };
 				}
 				case 'copy-common':
-					await this.handleInventoryAction(item, 'copy', locationOptions);
-					break;
+					return this.copyToCommonLibrary(item!);
 				case 'delete-item': {
 					const latest = await this.inventory.get(intent.item.id);
 					assertOverviewItemRevision(latest, intent.item.expectedRevision);
 					await this.inventory.remove(latest.id);
 					break;
 				}
+				case 'delete-items':
+					await this.inventory.removeItems(intent.items);
+					break;
 				case 'move-items':
 					await this.inventory.moveItemsToCategory(intent.items, intent.categoryId);
 					break;
@@ -492,6 +1903,20 @@ export class NativeInventoryController {
 					break;
 				case 'import-eda-categories':
 					return this.importEdaCategoriesCore();
+				case 'export-replenishment':
+					try {
+						await this.files.saveCsv(
+							createReplenishmentCsv(items, this.replenishmentCsvLabels()),
+							`jlceda-inventory-replenishment-${new Date().toISOString().slice(0, 10)}.csv`,
+						);
+						return { status: 'succeeded', message: this.t('inventoryOverview.exportReplenishmentSucceeded') };
+					}
+					catch (error) {
+						if (isCancelledFileSave(error)) {
+							return { status: 'cancelled', message: this.t('inventoryOverview.exportReplenishmentCancelled') };
+						}
+						return { status: 'failed', message: this.t('inventoryOverview.exportReplenishmentFailed') };
+					}
 				case 'refresh':
 					break;
 			}
@@ -500,6 +1925,12 @@ export class NativeInventoryController {
 		catch (error) {
 			if (error instanceof InventoryRevisionConflictError || error instanceof InventoryCategoryRevisionConflictError) {
 				return { status: 'failed', message: this.t('inventory.concurrentConflict') };
+			}
+			if (error instanceof InventoryItemActiveStockOutReferenceError) {
+				return { status: 'failed', message: this.t('inventory.activeStockOutReference') };
+			}
+			if (error instanceof InventoryItemSubstituteReferenceError) {
+				return { status: 'failed', message: this.t('inventory.substituteReference') };
 			}
 			return { status: 'failed', message: this.t('error.generic', errorMessage(error)) };
 		}
@@ -531,7 +1962,10 @@ export class NativeInventoryController {
 				edaModelStatus = 'unchecked';
 			}
 		}
-		const input = createInventoryEditInput(draft, marketplaceReference, edaModelReference, edaModelStatus);
+		const input: InventoryEditInput = {
+			...createInventoryEditInput(draft, marketplaceReference, edaModelReference, edaModelStatus),
+			categoryId: categoryId ?? null,
+		};
 		const result = await this.inventory.updateItem(
 			item.id,
 			item.revision,
@@ -551,7 +1985,6 @@ export class NativeInventoryController {
 				target,
 			};
 		}
-		await this.applyOverviewCategory(result.item, categoryId);
 		return { status: 'succeeded', message: this.t(result.status === 'merged' ? 'inventory.merged' : 'inventory.updated') };
 	}
 
@@ -578,18 +2011,7 @@ export class NativeInventoryController {
 		if (result.status !== 'merged') {
 			return { status: 'failed', message: this.t('inventory.concurrentConflict') };
 		}
-		await this.applyOverviewCategory(result.item, pending.categoryId);
 		return { status: 'succeeded', message: this.t('inventory.merged') };
-	}
-
-	private async applyOverviewCategory(item: InventoryItem, categoryId?: string): Promise<void> {
-		if (item.categoryId === categoryId) {
-			return;
-		}
-		await this.inventory.moveItemsToCategory(
-			[{ id: item.id, expectedRevision: item.revision }],
-			categoryId,
-		);
 	}
 
 	private async prepareOverviewModelMatch(
@@ -597,31 +2019,73 @@ export class NativeInventoryController {
 		pendingModelMatches: Map<string, PendingOverviewModelMatch>,
 	): Promise<InventoryOverviewOperationResult> {
 		const partNumber = item.identity.lcscPartNumber;
-		if (!partNumber) {
-			return { status: 'model-missing', message: this.t('edaModel.stillMissing') };
+		let model: EdaModel | undefined;
+		if (partNumber) {
+			const lookup = await this.lookupEdaModel(partNumber);
+			model = lookup.model;
 		}
-		const lookup = await this.lookupEdaModel(partNumber);
-		if (lookup.status === 'failed') {
-			return { status: 'failed', message: this.t('edaModel.lookupFailed') };
-		}
-		if (!lookup.model) {
-			return { status: 'model-missing', message: this.t('edaModel.stillMissing') };
+		if (!model) {
+			const defaultQuery = partNumber
+				?? item.identity.manufacturerPartNumber
+				?? item.identity.name;
+			const query = await this.dialog.input({
+				title: this.t('edaModel.searchTitle'),
+				label: this.t('edaModel.searchPrompt'),
+				value: defaultQuery,
+			});
+			if (query === undefined) {
+				return { status: 'cancelled' };
+			}
+			const normalizedQuery = normalizeInventoryText(query);
+			if (!normalizedQuery) {
+				return { status: 'model-missing', message: this.t('edaModel.stillMissing') };
+			}
+			let candidates: EdaModel[];
+			try {
+				candidates = deduplicateEdaModels(await this.edaModels.search(normalizedQuery, 20));
+			}
+			catch {
+				return { status: 'failed', message: this.t('edaModel.lookupFailed') };
+			}
+			if (candidates.length === 0) {
+				return { status: 'model-missing', message: this.t('edaModel.stillMissing') };
+			}
+			if (candidates.length === 1) {
+				model = candidates[0];
+			}
+			else {
+				const selectedIndex = await this.dialog.select(
+					candidates.map((candidate, index) => ({
+						value: String(index),
+						label: formatEdaModelCandidate(candidate),
+					})),
+					this.t('edaModel.searchTitle'),
+					this.t('edaModel.selectCandidate'),
+				);
+				if (selectedIndex === undefined) {
+					return { status: 'cancelled' };
+				}
+				model = candidates[Number(selectedIndex)];
+				if (!model) {
+					return { status: 'failed', message: this.t('edaModel.lookupFailed') };
+				}
+			}
 		}
 		const matchToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 		pendingModelMatches.set(matchToken, {
 			expectedRevision: item.revision,
 			itemId: item.id,
-			model: lookup.model,
+			model,
 		});
 		return {
 			status: 'model-match',
 			item: { id: item.id, expectedRevision: item.revision },
 			matchToken,
 			message: [
-				`${this.t('part.nameLabel')}: ${lookup.model.identity.name}`,
-				`${this.t('part.lcscLabel')}: ${lookup.model.identity.lcscPartNumber ?? partNumber}`,
-				`${this.t('part.manufacturerPartLabel')}: ${lookup.model.identity.manufacturerPartNumber ?? '-'}`,
-				`${this.t('part.packageLabel')}: ${lookup.model.identity.package ?? '-'}`,
+				`${this.t('part.nameLabel')}: ${model.identity.name}`,
+				`${this.t('part.lcscLabel')}: ${model.identity.lcscPartNumber ?? partNumber ?? '-'}`,
+				`${this.t('part.manufacturerPartLabel')}: ${model.identity.manufacturerPartNumber ?? '-'}`,
+				`${this.t('part.packageLabel')}: ${model.identity.package ?? '-'}`,
 			].join('\n'),
 		};
 	}
@@ -761,14 +2225,22 @@ export class NativeInventoryController {
 					this.dialog.info(this.t('inventory.concurrentConflict'));
 					return;
 				}
+				if (error instanceof InventoryItemActiveStockOutReferenceError) {
+					this.dialog.info(this.t('inventory.activeStockOutReference'));
+					return;
+				}
+				if (error instanceof InventoryItemSubstituteReferenceError) {
+					this.dialog.info(this.t('inventory.substituteReference'));
+					return;
+				}
 				throw error;
 			}
 		}
 	}
 
-	private async copyToCommonLibrary(item: InventoryItem): Promise<void> {
+	private async copyToCommonLibrary(item: InventoryItem): Promise<InventoryOverviewOperationResult> {
 		if (!item.edaModelReference) {
-			return;
+			return { status: 'failed', message: this.t('common.failed') };
 		}
 		const trace = this.diagnostics.start('copy-common');
 		try {
@@ -776,19 +2248,21 @@ export class NativeInventoryController {
 				item.edaModelReference!,
 				{ lcscPartNumber: item.identity.lcscPartNumber },
 			));
-			trace.info('common-library.copy.result', {
+			const details = {
 				attempts: result.attempts.map(attempt => `${attempt.target}:${attempt.status}`).join(','),
 				reason: result.status === 'failed' ? result.reason : undefined,
 				status: result.status,
-			});
+			};
 			if (result.status === 'failed') {
-				this.dialog.info(this.t(`common.failed.${result.reason}`));
-				return;
+				trace.warn('common-library.copy.result', details);
+				return { status: 'failed', message: this.t(`common.failed.${result.reason}`) };
 			}
+			trace.info('common-library.copy.result', details);
 			this.dialog.info(this.t(
 				result.status === 'already-present' ? 'common.alreadyPresent' : 'common.copied',
 				this.t(`common.${result.target}`),
 			));
+			return { status: 'succeeded' };
 		}
 		catch (error) {
 			trace.error('common-library.copy.failed', { error: errorMessage(error) });
@@ -1248,6 +2722,17 @@ function inventoryCreateDraftFingerprint(
 			supplierId: draft.identity.supplierId ?? '',
 		},
 		location: draft.location ?? '',
+		datasheetUrl: draft.datasheetUrl ?? '',
+		structuredLocation: draft.structuredLocation
+			? {
+					cabinet: draft.structuredLocation.cabinet ?? '',
+					box: draft.structuredLocation.box ?? '',
+					row: draft.structuredLocation.row ?? '',
+					column: draft.structuredLocation.column ?? '',
+				}
+			: undefined,
+		minimumQuantity: draft.minimumQuantity ?? null,
+		favorite: draft.favorite === true,
 		marketplaceConfirmed,
 		modelToken: modelToken ?? '',
 		note: draft.note ?? '',
@@ -1263,6 +2748,134 @@ function createSessionToken(): string {
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function isCancelledFileSave(error: unknown): boolean {
+	return error instanceof Error && error.name === 'AbortError';
+}
+
+function packageScanErrorKey(reason: Extract<ParseLcscPackageCodeResult, { status: 'invalid' }>['reason']): string {
+	switch (reason) {
+		case 'empty':
+		case 'missing-part-number':
+			return 'packageScan.missingPartNumber';
+		case 'invalid-part-number':
+			return 'packageScan.invalidPartNumber';
+		case 'invalid-quantity':
+			return 'packageScan.invalidQuantity';
+		case 'too-long':
+			return 'packageScan.tooLong';
+		case 'conflicting-field':
+			return 'packageScan.conflictingField';
+	}
+	return reason satisfies never;
+}
+
+function automaticBackupFailureKey(failure: AutomaticBackupFailure): string {
+	switch (failure) {
+		case 'api-unavailable': return 'autoBackup.unsupported';
+		case 'host-rejected': return 'autoBackup.hostRejected';
+		case 'settings-storage-failed': return 'autoBackup.settingsFailed';
+		case 'write-failed': return 'autoBackup.writeFailed';
+	}
+}
+
+function automaticBackupPathDiagnostics(path: string): { pathKind: string; pathLength: number } {
+	const normalized = path.trim();
+	const pathKind = /^[A-Z]:[\\/]/i.test(normalized)
+		? 'windows-drive'
+		: normalized.startsWith('\\\\') || normalized.startsWith('//')
+			? 'unc'
+			: normalized.startsWith('/')
+				? 'posix'
+				: /^[A-Z][A-Z\d+.-]*:/i.test(normalized)
+					? 'uri'
+					: 'host-relative';
+	return { pathKind, pathLength: normalized.length };
+}
+
+function deduplicateEdaModels(models: readonly EdaModel[]): EdaModel[] {
+	const unique = new Map<string, EdaModel>();
+	for (const model of models) {
+		const key = `${model.reference.libraryUuid}:${model.reference.deviceUuid}`;
+		if (!unique.has(key)) {
+			unique.set(key, model);
+		}
+	}
+	return [...unique.values()];
+}
+
+function formatEdaModelCandidate(model: EdaModel): string {
+	return [
+		model.identity.lcscPartNumber,
+		model.identity.manufacturerPartNumber,
+		model.identity.name,
+		model.identity.package,
+		model.reference.symbolName,
+		model.reference.footprintName,
+	].filter((value): value is string => Boolean(value)).join(' | ');
+}
+
+function matchesSelectedDesignComponent(item: InventoryItem, component: DesignComponentSnapshot): boolean {
+	const itemPartNumber = normalizeLcscPartNumber(item.identity.lcscPartNumber ?? item.identity.supplierId);
+	const componentPartNumber = normalizeLcscPartNumber(component.lcscPartNumber);
+	if (componentPartNumber && /^C\d+$/.test(componentPartNumber)) {
+		return itemPartNumber === componentPartNumber;
+	}
+	const itemMpn = normalizeInventoryText(item.identity.manufacturerPartNumber ?? '').toLowerCase();
+	const componentMpn = normalizeInventoryText(component.manufacturerPartNumber ?? '').toLowerCase();
+	return Boolean(componentMpn && itemMpn === componentMpn);
+}
+
+function formatSelectedDesignComponent(component: DesignComponentSnapshot): string {
+	return [
+		component.designator,
+		component.lcscPartNumber,
+		component.manufacturerPartNumber,
+		component.name,
+	].filter((value): value is string => Boolean(value)).join(' | ');
+}
+
+function toStockDesignComponent(component: DesignComponentSnapshot): StockDesignComponentSnapshot {
+	return {
+		designator: component.designator,
+		identity: {
+			name: component.name,
+			lcscPartNumber: component.lcscPartNumber,
+			manufacturerPartNumber: component.manufacturerPartNumber,
+			manufacturer: component.manufacturer,
+			package: component.package,
+		},
+		quantity: 1,
+	};
+}
+
+function bomDemandToStockComponent(demand: BomDesignDemand): StockDesignComponentSnapshot {
+	return {
+		designator: demand.designators.join(', ') || undefined,
+		identity: {
+			name: demand.identity.name,
+			lcscPartNumber: demand.lcscPartNumber,
+			manufacturerPartNumber: demand.identity.manufacturerPartNumber,
+			manufacturer: demand.identity.manufacturer,
+			package: demand.identity.package,
+		},
+		quantity: demand.quantity,
+	};
+}
+
+function createOverviewSearchState(query: string, focusItemId?: string): InventoryOverviewViewState {
+	return {
+		query,
+		focusItemId,
+		searchScope: 'all',
+		categoryId: 'all',
+		stockFilter: 'all',
+		modelFilter: 'all',
+		sort: 'relevance',
+		page: 1,
+		pageSize: 50,
+	};
 }
 
 function normalizeEditedPartNumber(
@@ -1311,7 +2924,17 @@ function createInventoryEditInput(
 		edaModelStatus,
 		quantity: draft.quantity,
 		precision: draft.quantity === 0 ? 'exact' : draft.precision,
+		minimumQuantity: draft.minimumQuantity ?? null,
+		favorite: draft.favorite === true,
 		location: optionalText(draft.location),
+		datasheetUrl: draft.datasheetUrl === undefined
+			? undefined
+			: draft.datasheetUrl === null
+				? null
+				: optionalText(draft.datasheetUrl) ?? null,
+		structuredLocation: draft.structuredLocation === undefined
+			? undefined
+			: draft.structuredLocation,
 		note: optionalText(draft.note),
 	};
 }
@@ -1328,9 +2951,13 @@ function inventoryItemDraft(item: InventoryItem): InventoryItemEditDraft {
 			description: item.identity.description ?? '',
 		},
 		location: item.location ?? '',
+		datasheetUrl: item.datasheetUrl,
+		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : undefined,
 		note: item.note ?? '',
 		precision: item.precision === 'estimated' ? 'estimated' : 'exact',
 		quantity: item.quantity ?? 0,
+		minimumQuantity: item.minimumQuantity,
+		favorite: item.favorite === true,
 	};
 }
 

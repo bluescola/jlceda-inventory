@@ -1,4 +1,6 @@
 import type { EdaModelStatus, InventorySource, MarketplaceEvidence, QuantityPrecision, StockState } from '../../../features/inventory/domain/inventory-item';
+import type { StructuredInventoryLocation } from '../../../features/inventory/domain/inventory-metadata';
+import type { ReplenishmentStatus } from '../../../features/inventory/domain/replenishment';
 import type {
 	InventoryOverviewCategory,
 	InventoryOverviewInput,
@@ -9,6 +11,8 @@ import type {
 	InventoryOverviewSnapshot,
 	InventoryOverviewViewState,
 } from './inventory-overview-panel';
+import { MAX_INVENTORY_DOCUMENT_CATEGORIES, MAX_INVENTORY_DOCUMENT_ITEMS } from '../../../features/inventory/application/inventory-document-limits';
+import { classifyReplenishment } from '../../../features/inventory/domain/replenishment';
 
 export const INVENTORY_OVERVIEW_IFRAME_ID = 'jlceda-inventory-overview-panel';
 export const INVENTORY_OVERVIEW_IFRAME_PATH = '/iframe/inventory-overview.html';
@@ -54,6 +58,13 @@ const LABEL_KEYS = [
 	'stockAll',
 	'stockInStock',
 	'stockDepleted',
+	'replenishmentFilter',
+	'replenishmentAll',
+	'replenishmentNeedsReplenishment',
+	'replenishmentStocktakeRequired',
+	'favoriteFilter',
+	'favoriteAll',
+	'favoriteOnly',
 	'modelFilter',
 	'modelAll',
 	'modelAvailable',
@@ -67,12 +78,18 @@ const LABEL_KEYS = [
 	'sortUpdated',
 	'sortCategory',
 	'clearFilters',
+	'columnSettings',
+	'columnPartIdentifier',
+	'restoreDefaultColumns',
+	'exportReplenishment',
 	'refresh',
 	'itemsCount',
 	'filteredCount',
 	'selectedCount',
 	'selectAllFiltered',
 	'clearSelection',
+	'deleteSelected',
+	'confirmDeleteSelected',
 	'moveToCategory',
 	'primaryCategory',
 	'secondaryCategory',
@@ -85,7 +102,15 @@ const LABEL_KEYS = [
 	'columnNumber',
 	'columnCategory',
 	'columnQuantity',
+	'columnMinimumQuantity',
+	'columnReplenishment',
 	'columnLocation',
+	'structuredLocation',
+	'locationCabinet',
+	'locationBox',
+	'locationRow',
+	'locationColumn',
+	'datasheet',
 	'columnModel',
 	'columnUpdatedAt',
 	'columnActions',
@@ -103,6 +128,15 @@ const LABEL_KEYS = [
 	'depleted',
 	'inStock',
 	'stockState',
+	'favorite',
+	'favoriteYes',
+	'favoriteNo',
+	'replenishmentDepleted',
+	'replenishmentLow',
+	'replenishmentNeedsCount',
+	'replenishmentNotConfigured',
+	'replenishmentPossiblyLow',
+	'replenishmentSufficient',
 	'note',
 	'marketplace',
 	'marketplaceFromOrder',
@@ -125,6 +159,8 @@ const LABEL_KEYS = [
 	'quantityRequired',
 	'quantityInteger',
 	'quantityNonNegative',
+	'minimumQuantityPositive',
+	'datasheetInvalid',
 	'existing',
 	'candidate',
 	'confirmMerge',
@@ -135,6 +171,7 @@ const LABEL_KEYS = [
 	'editItem',
 	'deleteItem',
 	'openMarketplace',
+	'openDatasheet',
 	'retryModel',
 	'copyCommon',
 	'emptyResults',
@@ -174,7 +211,12 @@ export interface InventoryOverviewItemSnapshot {
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state: StockState;
+	minimumQuantity?: number;
+	favorite: boolean;
+	replenishmentStatus: ReplenishmentStatus;
 	location: string;
+	datasheetUrl: string;
+	structuredLocation?: StructuredInventoryLocation;
 	note: string;
 	marketplaceEvidence?: MarketplaceEvidence;
 	edaModelStatus: EdaModelStatus;
@@ -272,7 +314,7 @@ export function parseIFrameInventoryOverviewRequest(value: unknown): IFrameInven
 		requestId: value.requestId,
 		labels: { ...value.labels },
 		categories: value.categories.map(category => ({ ...category })),
-		items: value.items.map(item => ({ ...item })),
+		items: value.items.map(cloneItemSnapshot),
 		initialState: value.initialState ? { ...value.initialState } : undefined,
 	};
 }
@@ -355,7 +397,12 @@ function createItemSnapshot(item: InventoryOverviewInput['items'][number]): Inve
 		quantity: item.quantity,
 		precision: item.precision,
 		state: item.state,
+		minimumQuantity: item.minimumQuantity,
+		favorite: item.favorite === true,
+		replenishmentStatus: classifyReplenishment(item),
 		location: item.location ?? '',
+		datasheetUrl: item.datasheetUrl ?? '',
+		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : undefined,
 		note: item.note ?? '',
 		marketplaceEvidence: item.marketplaceReference?.evidence,
 		edaModelStatus: item.edaModelStatus,
@@ -396,7 +443,7 @@ function createSnapshotPayload(snapshot: InventoryOverviewSnapshot): InventoryOv
 }
 
 function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
-	if (intent.type === 'move-items') {
+	if (intent.type === 'move-items' || intent.type === 'delete-items') {
 		return { ...intent, items: intent.items.map(item => ({ ...item })), viewState: { ...intent.viewState } };
 	}
 	if (intent.type === 'reorder-categories') {
@@ -405,6 +452,7 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 	if (intent.type === 'view-item'
 		|| intent.type === 'edit-item'
 		|| intent.type === 'open-marketplace'
+		|| intent.type === 'open-datasheet'
 		|| intent.type === 'retry-model'
 		|| intent.type === 'copy-common'
 		|| intent.type === 'delete-item') {
@@ -413,7 +461,13 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 	if (intent.type === 'update-item') {
 		return {
 			...intent,
-			draft: { ...intent.draft, identity: { ...intent.draft.identity } },
+			draft: {
+				...intent.draft,
+				identity: { ...intent.draft.identity },
+				structuredLocation: intent.draft.structuredLocation
+					? { ...intent.draft.structuredLocation }
+					: intent.draft.structuredLocation,
+			},
 			item: { ...intent.item },
 			viewState: { ...intent.viewState },
 		};
@@ -444,8 +498,8 @@ function cloneOperationResultSnapshot(
 	if (result.status === 'duplicate-match') {
 		return {
 			...result,
-			candidate: { ...result.candidate },
-			existing: { ...result.existing },
+			candidate: cloneItemSnapshot(result.candidate),
+			existing: cloneItemSnapshot(result.existing),
 			source: { ...result.source },
 			target: { ...result.target },
 		};
@@ -455,7 +509,7 @@ function cloneOperationResultSnapshot(
 		snapshot: result.snapshot
 			? {
 					categories: result.snapshot.categories.map(category => ({ ...category })),
-					items: result.snapshot.items.map(item => ({ ...item })),
+					items: result.snapshot.items.map(cloneItemSnapshot),
 				}
 			: undefined,
 	};
@@ -474,6 +528,7 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 	if ((value.type === 'view-item'
 		|| value.type === 'edit-item'
 		|| value.type === 'open-marketplace'
+		|| value.type === 'open-datasheet'
 		|| value.type === 'retry-model'
 		|| value.type === 'copy-common')
 	&& isRevisionRef(value.item)) {
@@ -501,6 +556,11 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 	if (value.type === 'delete-item' && value.confirmed === true && isRevisionRef(value.item)) {
 		return true;
 	}
+	if (value.type === 'delete-items'
+		&& value.confirmed === true
+		&& isRevisionRefs(value.items, 5000)) {
+		return true;
+	}
 	if (value.type === 'move-items'
 		&& isRevisionRefs(value.items, 5000)
 		&& (value.categoryId === undefined || isNonEmptyText(value.categoryId, 500))) {
@@ -524,7 +584,9 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 		&& isRevisionRefs(value.categories, 2000)) {
 		return true;
 	}
-	return value.type === 'import-eda-categories' || value.type === 'refresh';
+	return value.type === 'import-eda-categories'
+		|| value.type === 'export-replenishment'
+		|| value.type === 'refresh';
 }
 
 function isOperationResultSnapshot(value: unknown): value is InventoryOverviewOperationResultSnapshot {
@@ -563,9 +625,15 @@ function isSnapshotPayload(value: unknown): value is InventoryOverviewSnapshotPa
 function isViewState(value: unknown): value is InventoryOverviewViewState {
 	return isRecord(value)
 		&& isText(value.query, 500)
+		&& (value.focusItemId === undefined || isNonEmptyText(value.focusItemId, 500))
 		&& (value.searchScope === 'all' || value.searchScope === 'current')
 		&& isNonEmptyText(value.categoryId, 500)
 		&& (value.stockFilter === 'all' || value.stockFilter === 'in-stock' || value.stockFilter === 'depleted')
+		&& (value.replenishmentFilter === undefined
+			|| value.replenishmentFilter === 'all'
+			|| value.replenishmentFilter === 'needs-replenishment'
+			|| value.replenishmentFilter === 'stocktake-required')
+		&& (value.favoriteFilter === undefined || value.favoriteFilter === 'all' || value.favoriteFilter === 'favorites')
 		&& (value.modelFilter === 'all' || isModelStatus(value.modelFilter))
 		&& (value.sort === 'relevance' || value.sort === 'name' || value.sort === 'stock' || value.sort === 'updated' || value.sort === 'category')
 		&& isPositiveSafeInteger(value.page)
@@ -573,7 +641,7 @@ function isViewState(value: unknown): value is InventoryOverviewViewState {
 }
 
 function isCategories(value: unknown): value is InventoryOverviewCategorySnapshot[] {
-	if (!Array.isArray(value) || value.length > 2000) {
+	if (!Array.isArray(value) || value.length > MAX_INVENTORY_DOCUMENT_CATEGORIES) {
 		return false;
 	}
 	const ids = new Set<string>();
@@ -600,7 +668,7 @@ function isCategories(value: unknown): value is InventoryOverviewCategorySnapsho
 }
 
 function isItems(value: unknown): value is InventoryOverviewItemSnapshot[] {
-	if (!Array.isArray(value) || value.length > 10_000) {
+	if (!Array.isArray(value) || value.length > MAX_INVENTORY_DOCUMENT_ITEMS) {
 		return false;
 	}
 	const ids = new Set<string>();
@@ -621,7 +689,12 @@ function isItems(value: unknown): value is InventoryOverviewItemSnapshot[] {
 			|| !(item.quantity === null || isSafeNonNegativeInteger(item.quantity))
 			|| !isPrecision(item.precision)
 			|| !isStockState(item.state)
+			|| (item.minimumQuantity !== undefined && !isPositiveSafeInteger(item.minimumQuantity))
+			|| typeof item.favorite !== 'boolean'
+			|| !isReplenishmentStatus(item.replenishmentStatus)
 			|| !isText(item.location, 1000)
+			|| !isText(item.datasheetUrl, 2048)
+			|| (item.structuredLocation !== undefined && !isStructuredLocation(item.structuredLocation))
 			|| !isText(item.note, 4000)
 			|| (item.marketplaceEvidence !== undefined
 				&& item.marketplaceEvidence !== 'user-confirmed'
@@ -653,8 +726,29 @@ function isEditDraft(value: unknown): boolean {
 		&& isText(value.identity.description, 4000)
 		&& isSafeNonNegativeInteger(value.quantity)
 		&& (value.precision === 'exact' || value.precision === 'estimated')
+		&& (value.minimumQuantity === undefined || isPositiveSafeInteger(value.minimumQuantity))
+		&& (value.favorite === undefined || typeof value.favorite === 'boolean')
 		&& isText(value.location, 1000)
+		&& (value.datasheetUrl === undefined || value.datasheetUrl === null || isText(value.datasheetUrl, 2048))
+		&& (value.structuredLocation === undefined || value.structuredLocation === null || isStructuredLocation(value.structuredLocation))
 		&& isText(value.note, 4000);
+}
+
+function cloneItemSnapshot(item: InventoryOverviewItemSnapshot): InventoryOverviewItemSnapshot {
+	return {
+		...item,
+		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : undefined,
+	};
+}
+
+function isStructuredLocation(value: unknown): value is StructuredInventoryLocation {
+	if (!isRecord(value)) {
+		return false;
+	}
+	const fields = ['cabinet', 'box', 'row', 'column'] as const;
+	return Object.keys(value).every(key => fields.includes(key as typeof fields[number]))
+		&& fields.every(field => value[field] === undefined || isNonEmptyText(value[field], 64))
+		&& fields.some(field => value[field] !== undefined);
 }
 
 function isLabels(value: unknown): value is InventoryOverviewLabels {
@@ -693,6 +787,15 @@ function isModelStatus(value: unknown): value is EdaModelStatus {
 
 function isInventorySource(value: unknown): value is InventorySource {
 	return value === 'manual' || value === 'marketplace' || value === 'catalog' || value === 'order';
+}
+
+function isReplenishmentStatus(value: unknown): value is ReplenishmentStatus {
+	return value === 'depleted'
+		|| value === 'low'
+		|| value === 'needs-count'
+		|| value === 'not-configured'
+		|| value === 'possibly-low'
+		|| value === 'sufficient';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

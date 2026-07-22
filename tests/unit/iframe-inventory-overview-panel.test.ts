@@ -25,9 +25,12 @@ const t = ((key: string) => key) as Translate;
 
 const initialState: InventoryOverviewViewState = {
 	query: 'C1',
+	focusItemId: 'item-1',
 	searchScope: 'current',
 	categoryId: 'child',
 	stockFilter: 'in-stock',
+	replenishmentFilter: 'needs-replenishment',
+	favoriteFilter: 'favorites',
 	modelFilter: 'available',
 	sort: 'updated',
 	page: 2,
@@ -60,7 +63,11 @@ const item: InventoryItem = {
 	quantity: 12,
 	precision: 'exact',
 	state: 'in-stock',
+	minimumQuantity: 8,
+	favorite: true,
 	location: 'A-1',
+	datasheetUrl: 'https://example.com/microphone.pdf',
+	structuredLocation: { cabinet: 'A', box: '1', row: '2', column: '3' },
 	source: 'manual',
 	createdAt: '2026-07-20T00:00:00.000Z',
 	updatedAt: '2026-07-21T00:00:00.000Z',
@@ -123,6 +130,14 @@ async function settle<T>(promise: Promise<T>): Promise<T> {
 	return promise;
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+	let resolve: (value: T) => void = () => undefined;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
 describe('iframe inventory overview protocol', () => {
 	it('round-trips a request snapshot and rejects stale or structurally invalid messages', async () => {
 		const host = new FakeHost();
@@ -147,6 +162,11 @@ describe('iframe inventory overview protocol', () => {
 				edaSymbol: 'MIC',
 				edaFootprint: 'MODEL-SMD',
 				hasEdaModel: true,
+				minimumQuantity: 8,
+				favorite: true,
+				datasheetUrl: 'https://example.com/microphone.pdf',
+				structuredLocation: { cabinet: 'A', box: '1', row: '2', column: '3' },
+				replenishmentStatus: 'sufficient',
 				source: 'manual',
 				createdAt: '2026-07-20T00:00:00.000Z',
 				revision: 4,
@@ -158,7 +178,18 @@ describe('iframe inventory overview protocol', () => {
 		expect(request.labels.userCategories).toBe('inventoryOverview.userCategories');
 		expect(request.labels.importEdaCategories).toBe('categoryImport.title');
 		expect(request.labels.copyLcscPartNumber).toBe('inventoryOverview.copyLcscPartNumber');
+		expect(request.labels.deleteSelected).toBe('inventoryOverview.deleteSelected');
+		expect(request.labels.replenishmentNeedsReplenishment).toBe('inventoryOverview.replenishmentNeedsReplenishment');
+		expect(request.labels.exportReplenishment).toBe('inventoryOverview.exportReplenishment');
+		expect(request.labels.favoriteOnly).toBe('inventoryOverview.favoriteOnly');
+		expect(request.labels.columnSettings).toBe('inventoryOverview.columnSettings');
+		expect(request.labels.restoreDefaultColumns).toBe('inventoryOverview.restoreDefaultColumns');
+		expect(request.labels.openDatasheet).toBe('inventoryItem.openDatasheet');
 		expect(parseIFrameInventoryOverviewRequest({ ...request, protocolVersion: 1 })).toBeUndefined();
+		expect(parseIFrameInventoryOverviewRequest({
+			...request,
+			initialState: { ...initialState, focusItemId: '' },
+		})).toBeUndefined();
 		expect(parseIFrameInventoryOverviewRequest({
 			...request,
 			categories: [...request.categories, {
@@ -197,6 +228,17 @@ describe('iframe inventory overview protocol', () => {
 		expect(parseIFrameInventoryOverviewResult({
 			...valid,
 			operation: {
+				operationId: 'operation-open-datasheet',
+				intent: {
+					type: 'open-datasheet',
+					item: { id: 'item-1', expectedRevision: 4 },
+					viewState: initialState,
+				},
+			},
+		}, 'request-1')).toMatchObject({ operation: { intent: { type: 'open-datasheet' } } });
+		expect(parseIFrameInventoryOverviewResult({
+			...valid,
+			operation: {
 				...valid.operation,
 				intent: { ...valid.operation.intent, items: [{ id: 'item-1', expectedRevision: -1 }] },
 			},
@@ -208,6 +250,13 @@ describe('iframe inventory overview protocol', () => {
 				intent: { ...valid.operation.intent, viewState: { ...initialState, page: 0 } },
 			},
 		}, 'request-1')).toBeUndefined();
+		expect(parseIFrameInventoryOverviewResult({
+			...valid,
+			operation: {
+				...valid.operation,
+				intent: { ...valid.operation.intent, viewState: { ...initialState, focusItemId: ' '.repeat(501) } },
+			},
+		}, 'request-1')).toBeUndefined();
 		expect(parseIFrameInventoryOverviewResult(valid, 'stale-request')).toBeUndefined();
 		const importCategories = {
 			...valid,
@@ -217,6 +266,34 @@ describe('iframe inventory overview protocol', () => {
 			},
 		};
 		expect(parseIFrameInventoryOverviewResult(importCategories, 'request-1')).toEqual(importCategories);
+		const exportReplenishment = {
+			...valid,
+			operation: {
+				operationId: 'operation-export-replenishment',
+				intent: { type: 'export-replenishment', viewState: initialState },
+			},
+		};
+		expect(parseIFrameInventoryOverviewResult(exportReplenishment, 'request-1')).toEqual(exportReplenishment);
+		const deleteSelected = {
+			...valid,
+			operation: {
+				operationId: 'operation-delete-selected',
+				intent: {
+					type: 'delete-items',
+					items: [{ id: 'item-1', expectedRevision: 4 }],
+					confirmed: true,
+					viewState: initialState,
+				},
+			},
+		};
+		expect(parseIFrameInventoryOverviewResult(deleteSelected, 'request-1')).toEqual(deleteSelected);
+		expect(parseIFrameInventoryOverviewResult({
+			...deleteSelected,
+			operation: {
+				...deleteSelected.operation,
+				intent: { ...deleteSelected.operation.intent, confirmed: false },
+			},
+		}, 'request-1')).toBeUndefined();
 	});
 });
 
@@ -240,9 +317,77 @@ describe('inventory overview category manager markup', () => {
 		expect(manager).toContain('id="import-eda-categories"');
 		expect(manager.indexOf('id="import-eda-categories"')).toBeLessThan(manager.indexOf('id="category-manager-close"'));
 	});
+
+	it('exposes a dedicated delete-selected command in the bulk toolbar', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+
+		expect(html).toMatch(/id="bulk-toolbar"[\s\S]*id="delete-selected"/);
+	});
+
+	it('renders replenishment and favorite filters with dedicated stock columns', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+
+		expect(html).toContain('id="replenishment-filter"');
+		expect(html).toContain('id="favorite-filter"');
+		expect(html).toContain('id="column-minimum-quantity"');
+		expect(html).toContain('id="column-replenishment"');
+	});
+
+	it('renders an icon-triggered column menu and column markers without making the name optional', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+
+		expect(html).toMatch(/id="column-settings"[^>]+class="icon-button/);
+		expect(html).toContain('id="column-settings-menu"');
+		expect(html).toContain('id="restore-default-columns"');
+		expect(html).toContain('data-inventory-column="quantity"');
+		expect(html).toContain('data-inventory-column="replenishment"');
+		expect(html).toMatch(/<th id="column-name"><\/th>/);
+	});
 });
 
 describe('iframeInventoryOverviewPanel', () => {
+	it('finishes the operation queue before settling a native close without writing to the closed IFrame', async () => {
+		const host = new FakeHost();
+		const operationResult = deferred<{
+			status: 'succeeded';
+			snapshot: { items: InventoryItem[]; categories: [] };
+		}>();
+		const onOperation = vi.fn(() => operationResult.promise);
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [item], categories: [] }, onOperation);
+		const request = await requestFrom(host);
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'operation',
+			operation: {
+				operationId: 'operation-active',
+				intent: {
+					type: 'open-marketplace',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: initialState,
+				},
+			},
+		});
+		host.poll();
+		await vi.waitFor(() => expect(onOperation).toHaveBeenCalledOnce());
+
+		host.onClose();
+		expect(host.stopPolling).not.toHaveBeenCalled();
+		operationResult.resolve({ status: 'succeeded', snapshot: { items: [item], categories: [] } });
+		await settle(pending);
+
+		expect(onOperation).toHaveBeenCalledOnce();
+		expect(host.write).not.toHaveBeenCalledWith(INVENTORY_OVERVIEW_RESPONSE_KEY, expect.anything());
+		expect(host.stopPolling).toHaveBeenCalledOnce();
+		expect(host.close).toHaveBeenCalledOnce();
+	});
+
 	it('replaces a stale host iframe before opening a session from a new controller instance', async () => {
 		const host = new FakeHost();
 		host.hide.mockResolvedValueOnce(true);

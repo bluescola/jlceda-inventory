@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="und">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title></title>
+	<style>/* __INVENTORY_TRANSACTIONS_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="panel-shell" id="panel-shell" aria-busy="true">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span><span id="boot-message">...</span>
+		</div>
+		<section class="history" id="history" hidden>
+			<header class="history-meta">
+				<dl>
+					<div><dt id="batch-count-label"></dt><dd id="batch-count-value"></dd></div>
+					<div><dt id="transaction-count-label"></dt><dd id="transaction-count-value"></dd></div>
+				</dl>
+			</header>
+			<section class="history-section" aria-labelledby="batches-title">
+				<h2 id="batches-title"></h2>
+				<div class="table-region batch-table-region">
+					<table class="batch-table"><thead><tr>
+						<th id="batch-column-source"></th>
+						<th id="batch-column-fingerprint"></th>
+						<th id="batch-column-created-at"></th>
+						<th id="batch-column-status"></th>
+						<th id="batch-column-line-count" class="numeric"></th>
+						<th id="batch-column-total-quantity" class="numeric"></th>
+						<th id="batch-column-actions"></th>
+					</tr></thead><tbody id="batch-rows"></tbody></table>
+					<p class="empty-report" id="empty-batches" hidden></p>
+				</div>
+				<div class="pager" id="batch-pager">
+					<button id="batch-previous-page" class="icon-button" type="button"><span aria-hidden="true">&larr;</span></button>
+					<span id="batch-page-status" aria-live="polite"></span>
+					<button id="batch-next-page" class="icon-button" type="button"><span aria-hidden="true">&rarr;</span></button>
+				</div>
+			</section>
+			<section class="history-section transactions-section" aria-labelledby="transactions-title">
+				<div class="section-header">
+					<h2 id="transactions-title"></h2>
+					<div class="filters">
+						<label for="type-filter" id="type-filter-label"></label><select id="type-filter"></select>
+						<label for="batch-filter" id="batch-filter-label"></label><select id="batch-filter"></select>
+					</div>
+				</div>
+				<div class="table-region transaction-table-region">
+					<table class="transaction-table"><thead><tr>
+						<th id="transaction-column-created-at"></th>
+						<th id="transaction-column-type"></th>
+						<th id="transaction-column-part-number"></th>
+						<th id="transaction-column-name"></th>
+						<th id="transaction-column-manufacturer-part-number"></th>
+						<th id="transaction-column-package"></th>
+						<th id="transaction-column-delta" class="numeric"></th>
+						<th id="transaction-column-before-quantity" class="numeric"></th>
+						<th id="transaction-column-after-quantity" class="numeric"></th>
+						<th id="transaction-column-batch"></th>
+						<th id="transaction-column-note"></th>
+					</tr></thead><tbody id="transaction-rows"></tbody></table>
+					<p class="empty-report" id="empty-transactions" hidden></p>
+				</div>
+				<div class="pager" id="transaction-pager">
+					<button id="transaction-previous-page" class="icon-button" type="button"><span aria-hidden="true">&larr;</span></button>
+					<span id="transaction-page-status" aria-live="polite"></span>
+					<button id="transaction-next-page" class="icon-button" type="button"><span aria-hidden="true">&rarr;</span></button>
+				</div>
+			</section>
+			<footer class="actions">
+				<p class="operation-status" id="operation-status" aria-live="polite"></p>
+				<button id="refresh" class="button button-secondary" type="button"></button>
+				<button id="close" class="button button-primary" type="button"></button>
+			</footer>
+		</section>
+		<p class="connection-error" id="connection-error" role="alert" hidden></p>
+		<dialog class="confirm-dialog" id="confirm-dialog">
+			<h2 id="confirm-title"></h2>
+			<p id="confirm-message"></p>
+			<div class="confirm-actions">
+				<button id="confirm-cancel" class="button button-secondary" type="button"></button>
+				<button id="confirm-submit" class="button button-danger" type="button"></button>
+			</div>
+		</dialog>
+	</main>
+	<script>/* __INVENTORY_TRANSACTIONS_INLINE_JS__ */</script>
+</body>
+</html>

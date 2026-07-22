@@ -1,3 +1,9 @@
+import type { StructuredInventoryLocation } from './inventory-metadata';
+import { normalizeDatasheetUrl, normalizeStructuredLocation } from './inventory-metadata';
+import { normalizeInventoryText } from './inventory-text';
+
+export { normalizeInventoryText } from './inventory-text';
+
 export type QuantityPrecision = 'exact' | 'estimated' | 'unknown';
 export type StockState = 'in-stock' | 'depleted';
 export type InventorySource = 'manual' | 'marketplace' | 'catalog' | 'order';
@@ -38,7 +44,11 @@ export interface InventoryItem {
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state: StockState;
+	minimumQuantity?: number;
+	favorite?: boolean;
 	location?: string;
+	datasheetUrl?: string;
+	structuredLocation?: StructuredInventoryLocation;
 	note?: string;
 	source: InventorySource;
 	createdAt: string;
@@ -55,32 +65,21 @@ export interface NewInventoryItem {
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state?: StockState;
+	minimumQuantity?: number;
+	favorite?: boolean;
 	location?: string;
+	datasheetUrl?: string;
+	structuredLocation?: StructuredInventoryLocation;
 	note?: string;
 	source: InventorySource;
 }
 
-const FORMAT_CHARACTERS = /\p{Cf}/gu;
-
-export function normalizeInventoryText(value: string): string {
-	const withoutUnsafeFormatCharacters = value
-		// ZWNJ and ZWJ are format characters with valid multilingual shaping semantics.
-		.replaceAll(FORMAT_CHARACTERS, character => character === '\u200C' || character === '\u200D' ? character : '');
-	return Array.from(withoutUnsafeFormatCharacters, character => isUnsafeControlCharacter(character) ? '' : character).join('').trim();
-}
-
-function isUnsafeControlCharacter(character: string): boolean {
-	const codePoint = character.codePointAt(0) ?? 0;
-	return codePoint <= 0x08
-		|| codePoint === 0x0B
-		|| codePoint === 0x0C
-		|| (codePoint >= 0x0E && codePoint <= 0x1F)
-		|| (codePoint >= 0x7F && codePoint <= 0x9F);
-}
-
 export function normalizeInventoryItem(input: NewInventoryItem, now: string, id: string): InventoryItem {
 	const quantity = normalizeQuantity(input.quantity, input.precision);
-	return {
+	const minimumQuantity = normalizeMinimumQuantity(input.minimumQuantity);
+	const datasheetUrl = normalizeDatasheetUrl(input.datasheetUrl);
+	const structuredLocation = normalizeStructuredLocation(input.structuredLocation);
+	const normalized: InventoryItem = {
 		id,
 		categoryId: input.categoryId,
 		identity: normalizeIdentity(input.identity),
@@ -91,12 +90,27 @@ export function normalizeInventoryItem(input: NewInventoryItem, now: string, id:
 		precision: input.precision,
 		state: input.state === 'depleted' || quantity === 0 ? 'depleted' : 'in-stock',
 		location: cleanOptional(input.location),
+		datasheetUrl,
+		structuredLocation,
 		note: cleanOptional(input.note),
 		source: input.source,
 		createdAt: now,
 		updatedAt: now,
 		revision: 1,
 	};
+	if (minimumQuantity !== undefined) {
+		normalized.minimumQuantity = minimumQuantity;
+	}
+	if (input.favorite === true) {
+		normalized.favorite = true;
+	}
+	if (datasheetUrl === undefined) {
+		delete normalized.datasheetUrl;
+	}
+	if (structuredLocation === undefined) {
+		delete normalized.structuredLocation;
+	}
+	return normalized;
 }
 
 export function normalizeQuantity(quantity: number | null, precision: QuantityPrecision): number | null {
@@ -107,6 +121,16 @@ export function normalizeQuantity(quantity: number | null, precision: QuantityPr
 		throw new Error('Quantity must be a non-negative integer.');
 	}
 	return quantity;
+}
+
+export function normalizeMinimumQuantity(value: unknown): number | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+	if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+		throw new Error('Minimum quantity must be a positive safe integer.');
+	}
+	return value;
 }
 
 export function inventoryIdentityKey(identity: PartIdentity): string {
@@ -139,13 +163,31 @@ function normalizeIdentity(identity: PartIdentity): PartIdentity {
 }
 
 export function sanitizeInventoryItemText(item: InventoryItem): InventoryItem {
-	return {
+	const sanitized: InventoryItem = {
 		...item,
 		identity: sanitizeIdentityText(item.identity),
 		edaModelReference: item.edaModelReference ? sanitizeEdaModelReferenceText(item.edaModelReference) : undefined,
 		location: cleanOptional(item.location),
+		datasheetUrl: normalizeDatasheetUrl(item.datasheetUrl),
+		structuredLocation: normalizeStructuredLocation(item.structuredLocation),
 		note: cleanOptional(item.note),
 	};
+	delete sanitized.minimumQuantity;
+	delete sanitized.favorite;
+	const minimumQuantity = sanitizeMinimumQuantity(item.minimumQuantity);
+	if (minimumQuantity !== undefined) {
+		sanitized.minimumQuantity = minimumQuantity;
+	}
+	if (item.favorite === true) {
+		sanitized.favorite = true;
+	}
+	if (sanitized.datasheetUrl === undefined) {
+		delete sanitized.datasheetUrl;
+	}
+	if (sanitized.structuredLocation === undefined) {
+		delete sanitized.structuredLocation;
+	}
+	return sanitized;
 }
 
 export function sanitizeEdaModelReferenceText(reference: EdaModelReference): EdaModelReference {
@@ -176,4 +218,10 @@ function sanitizeIdentityText(identity: PartIdentity): PartIdentity {
 function cleanOptional(value?: string): string | undefined {
 	const cleaned = value === undefined ? undefined : normalizeInventoryText(value);
 	return cleaned || undefined;
+}
+
+function sanitizeMinimumQuantity(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+		? value
+		: undefined;
 }

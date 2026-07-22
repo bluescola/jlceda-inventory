@@ -32,6 +32,7 @@
 					<label class="field-row"><span id="label-package"></span><input id="edit-package" type="text" maxlength="500"></label>
 					<label class="field-row field-row-textarea"><span id="label-description"></span><textarea id="edit-description" rows="3" maxlength="4000"></textarea></label>
 					<label class="field-row"><span><span id="label-quantity"></span><span class="required" aria-hidden="true">*</span></span><input id="edit-quantity" type="number" inputmode="numeric" min="0" step="1" required></label>
+					<label class="field-row"><span id="label-minimum-quantity"></span><input id="edit-minimum-quantity" type="number" inputmode="numeric" min="1" step="1"></label>
 					<fieldset class="field-row choice-row">
 						<legend id="label-precision"></legend>
 						<div class="segmented-control">
@@ -40,6 +41,7 @@
 						</div>
 					</fieldset>
 					<label class="field-row checkbox-row"><span id="label-depleted"></span><input id="edit-depleted" type="checkbox"></label>
+					<label class="field-row checkbox-row"><span id="label-favorite"></span><input id="edit-favorite" type="checkbox"></label>
 					<div class="field-row">
 						<label id="label-location" for="edit-location"></label>
 						<div class="input-with-action">
@@ -48,6 +50,16 @@
 							<div id="location-options" class="location-options" role="listbox" hidden></div>
 						</div>
 					</div>
+					<label class="field-row"><span id="label-datasheet"></span><input id="edit-datasheet" type="url" inputmode="url" maxlength="2048"></label>
+					<fieldset class="field-row structured-location-row">
+						<legend id="label-structured-location"></legend>
+						<div class="structured-location-grid">
+							<label><span id="label-location-cabinet"></span><input id="edit-location-cabinet" type="text" maxlength="64"></label>
+							<label><span id="label-location-box"></span><input id="edit-location-box" type="text" maxlength="64"></label>
+							<label><span id="label-location-row"></span><input id="edit-location-row" type="text" maxlength="64"></label>
+							<label><span id="label-location-column"></span><input id="edit-location-column" type="text" maxlength="64"></label>
+						</div>
+					</fieldset>
 					<label class="field-row field-row-textarea"><span id="label-note"></span><textarea id="edit-note" rows="3" maxlength="4000"></textarea></label>
 				</div>
 

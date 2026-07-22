@@ -1,3 +1,4 @@
+import type { StructuredInventoryLocation } from '../../../features/inventory/domain/inventory-metadata';
 import type {
 	InventoryCreateCategory,
 	InventoryCreateDuplicateSnapshot,
@@ -33,6 +34,8 @@ const LABEL_KEYS = [
 	'description',
 	'quantityMode',
 	'quantity',
+	'minimumQuantity',
+	'favorite',
 	'exact',
 	'estimated',
 	'unknown',
@@ -43,6 +46,12 @@ const LABEL_KEYS = [
 	'noSecondaryCategory',
 	'location',
 	'chooseLocation',
+	'datasheet',
+	'structuredLocation',
+	'locationCabinet',
+	'locationBox',
+	'locationRow',
+	'locationColumn',
 	'note',
 	'queryEda',
 	'openMarketplace',
@@ -71,6 +80,8 @@ const LABEL_KEYS = [
 	'quantityInteger',
 	'quantityNonNegative',
 	'quantityTooLarge',
+	'minimumQuantityPositive',
+	'datasheetInvalid',
 	'loading',
 	'connectionError',
 	'operationError',
@@ -275,8 +286,15 @@ export function defaultInventoryCreateFormState(
 		description: initial?.description ?? '',
 		quantityMode: initial?.quantityMode ?? 'exact',
 		quantity: initial?.quantity ?? '1',
+		minimumQuantity: initial?.minimumQuantity ?? '',
+		favorite: initial?.favorite ?? false,
 		categoryId: initial?.categoryId ?? '',
 		location: initial?.location ?? '',
+		datasheetUrl: initial?.datasheetUrl ?? '',
+		locationCabinet: initial?.locationCabinet ?? '',
+		locationBox: initial?.locationBox ?? '',
+		locationRow: initial?.locationRow ?? '',
+		locationColumn: initial?.locationColumn ?? '',
 		note: initial?.note ?? '',
 	};
 }
@@ -297,8 +315,15 @@ function isFormState(value: unknown): value is InventoryCreateFormState {
 		&& isText(value.description, 4000)
 		&& isQuantityMode(value.quantityMode)
 		&& isText(value.quantity, 100)
+		&& (value.minimumQuantity === undefined || isText(value.minimumQuantity, 100))
+		&& (value.favorite === undefined || typeof value.favorite === 'boolean')
 		&& isText(value.categoryId, 500)
 		&& isText(value.location, 1000)
+		&& isText(value.datasheetUrl, 2048)
+		&& isText(value.locationCabinet, 64)
+		&& isText(value.locationBox, 64)
+		&& isText(value.locationRow, 64)
+		&& isText(value.locationColumn, 64)
 		&& isText(value.note, 4000);
 }
 
@@ -365,6 +390,8 @@ function isDuplicate(value: unknown): value is InventoryCreateDuplicateSnapshot 
 		&& (value.state === 'in-stock' || value.state === 'depleted')
 		&& (value.categoryName === undefined || isText(value.categoryName, 500))
 		&& (value.location === undefined || isText(value.location, 1000))
+		&& (value.datasheetUrl === undefined || isText(value.datasheetUrl, 2048))
+		&& (value.structuredLocation === undefined || isStructuredLocation(value.structuredLocation))
 		&& (value.note === undefined || isText(value.note, 4000));
 }
 
@@ -386,7 +413,21 @@ function cloneModel(model: InventoryCreateModelSummary): InventoryCreateModelSum
 }
 
 function cloneDuplicate(value: InventoryCreateDuplicateSnapshot): InventoryCreateDuplicateSnapshot {
-	return { ...value, identity: { ...value.identity } };
+	return {
+		...value,
+		identity: { ...value.identity },
+		structuredLocation: value.structuredLocation ? { ...value.structuredLocation } : undefined,
+	};
+}
+
+function isStructuredLocation(value: unknown): value is StructuredInventoryLocation {
+	if (!isRecord(value)) {
+		return false;
+	}
+	const fields = ['cabinet', 'box', 'row', 'column'] as const;
+	return Object.keys(value).every(key => fields.includes(key as typeof fields[number]))
+		&& fields.every(field => value[field] === undefined || isNonEmptyText(value[field], 64))
+		&& fields.some(field => value[field] !== undefined);
 }
 
 function isMode(value: unknown): value is InventoryCreateMode {

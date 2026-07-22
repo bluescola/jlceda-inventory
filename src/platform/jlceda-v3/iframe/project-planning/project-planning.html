@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="und">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title></title>
+	<style>/* __PROJECT_PLANNING_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="panel-shell" id="panel-shell" aria-busy="true">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">...</span>
+		</div>
+
+		<section class="workspace" id="workspace" hidden>
+			<header class="workspace-header">
+				<div class="tabs" role="tablist" aria-label="">
+					<button id="tab-snapshots" class="tab" type="button" role="tab" aria-controls="view-snapshots"></button>
+					<button id="tab-procurement" class="tab" type="button" role="tab" aria-controls="view-procurement"></button>
+					<button id="tab-purchases" class="tab" type="button" role="tab" aria-controls="view-purchases"></button>
+				</div>
+				<div class="header-actions">
+					<label for="page-size" id="page-size-label"></label>
+					<select id="page-size"><option value="25">25</option><option value="50">50</option><option value="100">100</option></select>
+					<button id="refresh" class="button button-secondary" type="button"></button>
+					<button id="close" class="button button-secondary" type="button"></button>
+				</div>
+			</header>
+
+			<section id="view-snapshots" class="view" role="tabpanel" aria-labelledby="tab-snapshots">
+				<div class="view-toolbar">
+					<div><h1 id="snapshots-title"></h1><p id="snapshots-summary" class="summary"></p></div>
+					<button id="capture-current" class="button button-primary" type="button"></button>
+				</div>
+				<div class="table-region">
+					<table class="snapshot-table">
+						<thead><tr>
+							<th id="snapshot-column-label"></th><th id="snapshot-column-project"></th>
+							<th id="snapshot-column-document"></th><th id="snapshot-column-kind"></th>
+							<th id="snapshot-column-board" class="numeric"></th><th id="snapshot-column-captured"></th>
+							<th id="snapshot-column-lines" class="numeric"></th><th id="snapshot-column-actions"></th>
+						</tr></thead>
+						<tbody id="snapshot-rows"></tbody>
+					</table>
+					<p id="snapshots-empty" class="empty-state" hidden></p>
+				</div>
+				<div id="snapshot-pager" class="pager">
+					<button id="snapshot-previous" class="icon-button" type="button" aria-label="Previous">&larr;</button>
+					<span id="snapshot-page-status" aria-live="polite"></span>
+					<button id="snapshot-next" class="icon-button" type="button" aria-label="Next">&rarr;</button>
+				</div>
+			</section>
+
+			<section id="view-procurement" class="view" role="tabpanel" aria-labelledby="tab-procurement" hidden>
+				<div class="view-toolbar">
+					<div><h1 id="procurement-title"></h1><p id="procurement-summary" class="summary"></p></div>
+					<button id="export-procurement" class="button button-primary" type="button"></button>
+				</div>
+				<div class="table-region">
+					<table class="procurement-table">
+						<thead><tr>
+							<th id="procurement-column-part"></th><th id="procurement-column-name"></th>
+							<th id="procurement-column-required" class="numeric"></th><th id="procurement-column-available" class="numeric"></th>
+							<th id="procurement-column-shortage" class="numeric"></th><th id="procurement-column-status"></th>
+							<th id="procurement-column-sources"></th>
+						</tr></thead>
+						<tbody id="procurement-rows"></tbody>
+					</table>
+					<p id="procurement-empty" class="empty-state" hidden></p>
+				</div>
+				<div id="procurement-pager" class="pager">
+					<button id="procurement-previous" class="icon-button" type="button" aria-label="Previous">&larr;</button>
+					<span id="procurement-page-status" aria-live="polite"></span>
+					<button id="procurement-next" class="icon-button" type="button" aria-label="Next">&rarr;</button>
+				</div>
+			</section>
+
+			<section id="view-purchases" class="view" role="tabpanel" aria-labelledby="tab-purchases" hidden>
+				<div class="view-toolbar">
+					<div><h1 id="purchases-title"></h1><p id="purchases-summary" class="summary"></p></div>
+					<button id="add-purchase" class="button button-primary" type="button"></button>
+				</div>
+				<div id="cost-summary" class="cost-summary" aria-live="polite"></div>
+				<div class="table-region">
+					<table class="purchase-table">
+						<thead><tr>
+							<th id="purchase-column-part"></th><th id="purchase-column-name"></th>
+							<th id="purchase-column-quantity" class="numeric"></th><th id="purchase-column-unit-price" class="numeric"></th>
+							<th id="purchase-column-total" class="numeric"></th><th id="purchase-column-platform"></th>
+							<th id="purchase-column-order"></th><th id="purchase-column-date"></th>
+							<th id="purchase-column-sources"></th><th id="purchase-column-actions"></th>
+						</tr></thead>
+						<tbody id="purchase-rows"></tbody>
+					</table>
+					<p id="purchases-empty" class="empty-state" hidden></p>
+				</div>
+				<div id="purchase-pager" class="pager">
+					<button id="purchase-previous" class="icon-button" type="button" aria-label="Previous">&larr;</button>
+					<span id="purchase-page-status" aria-live="polite"></span>
+					<button id="purchase-next" class="icon-button" type="button" aria-label="Next">&rarr;</button>
+				</div>
+			</section>
+
+			<p id="operation-status" class="operation-status" aria-live="polite"></p>
+		</section>
+
+		<p id="connection-error" class="connection-error" role="alert" hidden></p>
+
+		<div id="dialog-backdrop" class="dialog-backdrop" hidden>
+			<section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+				<h2 id="dialog-title"></h2>
+				<p id="dialog-message"></p>
+				<div id="board-quantity-field" class="field" hidden>
+					<label for="board-quantity-input" id="board-quantity-label"></label>
+					<input id="board-quantity-input" type="number" min="1" step="1" inputmode="numeric">
+				</div>
+				<p id="dialog-error" class="form-error" role="alert" hidden></p>
+				<footer class="dialog-actions"><button id="dialog-cancel" class="button button-secondary" type="button"></button><button id="dialog-confirm" class="button button-danger" type="button"></button></footer>
+			</section>
+		</div>
+
+		<div id="purchase-backdrop" class="dialog-backdrop" hidden>
+			<section class="dialog purchase-dialog" role="dialog" aria-modal="true" aria-labelledby="purchase-form-title">
+				<h2 id="purchase-form-title"></h2>
+				<form id="purchase-form" class="purchase-form">
+					<div class="field"><label for="purchase-part" id="purchase-part-label"></label><input id="purchase-part" maxlength="64" placeholder="C12345"></div>
+					<div class="field field-wide"><label for="purchase-name" id="purchase-name-label"></label><input id="purchase-name" required maxlength="256"></div>
+					<div class="field"><label for="purchase-quantity" id="purchase-quantity-label"></label><input id="purchase-quantity" required type="number" min="1" step="1" inputmode="numeric"></div>
+					<div class="field"><label for="purchase-unit-price" id="purchase-unit-price-label"></label><input id="purchase-unit-price" required type="number" min="0" step="1" inputmode="numeric"></div>
+					<div class="field"><label for="purchase-currency" id="purchase-currency-label"></label><input id="purchase-currency" required maxlength="16" value="CNY"></div>
+					<div class="field"><label for="purchase-date" id="purchase-date-label"></label><input id="purchase-date" required type="date"></div>
+					<div class="field"><label for="purchase-platform" id="purchase-platform-label"></label><input id="purchase-platform" maxlength="128"></div>
+					<div class="field"><label for="purchase-order" id="purchase-order-label"></label><input id="purchase-order" maxlength="128"></div>
+					<div class="field field-wide"><label for="purchase-url" id="purchase-url-label"></label><input id="purchase-url" type="url" maxlength="2048"></div>
+					<div class="field field-wide"><label for="purchase-snapshots" id="purchase-snapshots-label"></label><select id="purchase-snapshots" multiple></select></div>
+					<div class="field field-wide"><label for="purchase-note" id="purchase-note-label"></label><textarea id="purchase-note" maxlength="1024" rows="3"></textarea></div>
+					<p id="purchase-form-error" class="form-error field-wide" role="alert" hidden></p>
+					<footer class="dialog-actions field-wide"><button id="purchase-cancel" class="button button-secondary" type="button"></button><button id="purchase-submit" class="button button-primary" type="submit"></button></footer>
+				</form>
+			</section>
+		</div>
+	</main>
+	<script>/* __PROJECT_PLANNING_INLINE_JS__ */</script>
+</body>
+</html>

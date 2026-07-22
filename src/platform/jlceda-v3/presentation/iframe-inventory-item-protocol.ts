@@ -1,4 +1,7 @@
 import type { InventoryItem, PartIdentity, QuantityPrecision, StockState } from '../../../features/inventory/domain/inventory-item';
+import type { StructuredInventoryLocation } from '../../../features/inventory/domain/inventory-metadata';
+import type { ReplenishmentStatus } from '../../../features/inventory/domain/replenishment';
+import { classifyReplenishment } from '../../../features/inventory/domain/replenishment';
 
 export const INVENTORY_ITEM_IFRAME_ID = 'jlceda-inventory-item-panel';
 export const INVENTORY_ITEM_IFRAME_PATH = '/iframe/inventory-item.html';
@@ -21,6 +24,7 @@ const LABEL_KEYS = [
 	'package',
 	'description',
 	'quantity',
+	'minimumQuantity',
 	'precision',
 	'exact',
 	'estimated',
@@ -28,8 +32,24 @@ const LABEL_KEYS = [
 	'stockState',
 	'depleted',
 	'inStock',
+	'favorite',
+	'favoriteYes',
+	'favoriteNo',
+	'replenishmentStatus',
+	'replenishmentDepleted',
+	'replenishmentLow',
+	'replenishmentNeedsCount',
+	'replenishmentNotConfigured',
+	'replenishmentPossiblyLow',
+	'replenishmentSufficient',
 	'location',
 	'chooseLocation',
+	'datasheet',
+	'structuredLocation',
+	'locationCabinet',
+	'locationBox',
+	'locationRow',
+	'locationColumn',
 	'note',
 	'marketplace',
 	'edaModel',
@@ -54,6 +74,8 @@ const LABEL_KEYS = [
 	'quantityRequired',
 	'quantityInteger',
 	'quantityNonNegative',
+	'minimumQuantityPositive',
+	'datasheetInvalid',
 	'loading',
 	'connectionError',
 	'saveError',
@@ -75,7 +97,12 @@ export interface InventoryItemPanelSnapshot {
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state: StockState;
+	minimumQuantity?: number;
+	favorite: boolean;
+	replenishmentStatus: ReplenishmentStatus;
 	location: string;
+	datasheetUrl: string;
+	structuredLocation?: StructuredInventoryLocation;
 	note: string;
 	marketplaceStatus: string;
 	edaModelStatus: string;
@@ -96,9 +123,16 @@ export interface InventoryItemEditFormState {
 	package: string;
 	description: string;
 	quantity: string;
+	minimumQuantity?: string;
 	precision: 'exact' | 'estimated';
 	depleted: boolean;
+	favorite?: boolean;
 	location: string;
+	datasheetUrl: string;
+	locationCabinet: string;
+	locationBox: string;
+	locationRow: string;
+	locationColumn: string;
 	note: string;
 }
 
@@ -184,7 +218,12 @@ export function createInventoryItemSnapshot(item: InventoryItem): InventoryItemP
 		quantity: item.quantity,
 		precision: item.precision,
 		state: item.state,
+		minimumQuantity: item.minimumQuantity,
+		favorite: item.favorite === true,
+		replenishmentStatus: classifyReplenishment(item),
 		location: item.location ?? '',
+		datasheetUrl: item.datasheetUrl ?? '',
+		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : undefined,
 		note: item.note ?? '',
 		marketplaceStatus: item.marketplaceReference?.evidence ?? '',
 		edaModelStatus: item.edaModelStatus,
@@ -293,7 +332,11 @@ export function parseIFrameInventoryItemResult(
 }
 
 function cloneSnapshot(value: InventoryItemPanelSnapshot): InventoryItemPanelSnapshot {
-	return { ...value, identity: { ...value.identity } };
+	return {
+		...value,
+		identity: { ...value.identity },
+		structuredLocation: value.structuredLocation ? { ...value.structuredLocation } : undefined,
+	};
 }
 
 function isSnapshot(value: unknown): value is InventoryItemPanelSnapshot {
@@ -302,7 +345,12 @@ function isSnapshot(value: unknown): value is InventoryItemPanelSnapshot {
 		&& (value.quantity === null || (typeof value.quantity === 'number' && Number.isSafeInteger(value.quantity) && value.quantity >= 0))
 		&& isPrecision(value.precision)
 		&& (value.state === 'in-stock' || value.state === 'depleted')
+		&& (value.minimumQuantity === undefined || isPositiveSafeInteger(value.minimumQuantity))
+		&& typeof value.favorite === 'boolean'
+		&& isReplenishmentStatus(value.replenishmentStatus)
 		&& isText(value.location, 1000)
+		&& isDatasheetUrl(value.datasheetUrl)
+		&& (value.structuredLocation === undefined || isStructuredLocation(value.structuredLocation))
 		&& isText(value.note, 4000)
 		&& isText(value.marketplaceStatus, 1000)
 		&& isText(value.edaModelStatus, 1000)
@@ -337,10 +385,43 @@ function isEditState(value: unknown): value is InventoryItemEditFormState {
 		&& isText(value.package, 500)
 		&& isText(value.description, 4000)
 		&& isText(value.quantity, 100)
+		&& (value.minimumQuantity === undefined || isText(value.minimumQuantity, 100))
 		&& (value.precision === 'exact' || value.precision === 'estimated')
 		&& typeof value.depleted === 'boolean'
+		&& (value.favorite === undefined || typeof value.favorite === 'boolean')
 		&& isText(value.location, 1000)
+		&& isDatasheetUrl(value.datasheetUrl)
+		&& isText(value.locationCabinet, 64)
+		&& isText(value.locationBox, 64)
+		&& isText(value.locationRow, 64)
+		&& isText(value.locationColumn, 64)
 		&& isText(value.note, 4000);
+}
+
+function isStructuredLocation(value: unknown): value is StructuredInventoryLocation {
+	if (!isRecord(value)) {
+		return false;
+	}
+	const fields = ['cabinet', 'box', 'row', 'column'] as const;
+	return Object.keys(value).every(key => fields.includes(key as typeof fields[number]))
+		&& fields.every(field => value[field] === undefined || isNonEmptyText(value[field], 64))
+		&& fields.some(field => value[field] !== undefined);
+}
+
+function isDatasheetUrl(value: unknown): value is string {
+	if (!isText(value, 2048)) {
+		return false;
+	}
+	if (!value) {
+		return true;
+	}
+	try {
+		const url = new URL(value);
+		return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
+	}
+	catch {
+		return false;
+	}
 }
 
 function isSuggestion(value: unknown): value is InventoryItemSuggestion {
@@ -373,6 +454,15 @@ function isPrecision(value: unknown): value is QuantityPrecision {
 	return value === 'exact' || value === 'estimated' || value === 'unknown';
 }
 
+function isReplenishmentStatus(value: unknown): value is ReplenishmentStatus {
+	return value === 'depleted'
+		|| value === 'low'
+		|| value === 'needs-count'
+		|| value === 'not-configured'
+		|| value === 'possibly-low'
+		|| value === 'sufficient';
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
@@ -383,4 +473,8 @@ function isText(value: unknown, maximumLength: number): value is string {
 
 function isNonEmptyText(value: unknown, maximumLength: number): value is string {
 	return isText(value, maximumLength) && value.length > 0;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }

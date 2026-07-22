@@ -27,15 +27,20 @@ export interface InventoryOverviewRevisionRef {
 
 export type InventoryOverviewStockFilter = 'all' | 'depleted' | 'in-stock';
 export type InventoryOverviewModelFilter = 'all' | EdaModelStatus;
+export type InventoryOverviewReplenishmentFilter = 'all' | 'needs-replenishment' | 'stocktake-required';
+export type InventoryOverviewFavoriteFilter = 'all' | 'favorites';
 export type InventoryOverviewSort = 'category' | 'name' | 'relevance' | 'stock' | 'updated';
 export type InventoryOverviewSearchScope = 'all' | 'current';
 
 export interface InventoryOverviewViewState {
 	query: string;
+	focusItemId?: string;
 	searchScope: InventoryOverviewSearchScope;
 	categoryId: 'all' | 'unclassified' | string;
 	stockFilter: InventoryOverviewStockFilter;
 	modelFilter: InventoryOverviewModelFilter;
+	replenishmentFilter?: InventoryOverviewReplenishmentFilter;
+	favoriteFilter?: InventoryOverviewFavoriteFilter;
 	sort: InventoryOverviewSort;
 	page: number;
 	pageSize: 25 | 50 | 100;
@@ -47,16 +52,19 @@ export type InventoryOverviewAction
 		| { type: 'update-item'; item: InventoryOverviewRevisionRef; draft: InventoryItemEditDraft; categoryId?: string }
 		| { type: 'merge-items'; source: InventoryOverviewRevisionRef; target: InventoryOverviewRevisionRef; matchToken: string; categoryId?: string }
 		| { type: 'open-marketplace'; item: InventoryOverviewRevisionRef }
+		| { type: 'open-datasheet'; item: InventoryOverviewRevisionRef }
 		| { type: 'retry-model'; item: InventoryOverviewRevisionRef }
 		| { type: 'attach-model'; item: InventoryOverviewRevisionRef; matchToken: string }
 		| { type: 'copy-common'; item: InventoryOverviewRevisionRef }
 		| { type: 'delete-item'; item: InventoryOverviewRevisionRef; confirmed: true }
+		| { type: 'delete-items'; items: InventoryOverviewRevisionRef[]; confirmed: true }
 		| { type: 'move-items'; items: InventoryOverviewRevisionRef[]; categoryId?: string }
 		| { type: 'create-category'; name: string; parentId?: string }
 		| { type: 'rename-category'; category: InventoryOverviewRevisionRef; name: string }
 		| { type: 'delete-category'; category: InventoryOverviewRevisionRef; confirmed: true }
 		| { type: 'reorder-categories'; parentId?: string; categories: InventoryOverviewRevisionRef[] }
 		| { type: 'import-eda-categories' }
+		| { type: 'export-replenishment' }
 		| { type: 'refresh' };
 
 export type InventoryOverviewIntent = InventoryOverviewAction & { viewState: InventoryOverviewViewState };

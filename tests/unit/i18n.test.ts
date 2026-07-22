@@ -21,9 +21,12 @@ describe('runtime locale files', () => {
 		expect(readMessages('en')['inventoryItem.supplierId']).toBe('Supplier ID');
 	});
 
-	it('defines every literal translation key used by the inventory item adapter', () => {
-		const source = readFileSync(resolve('src/platform/jlceda-v3/presentation/iframe-inventory-item-panel.ts'), 'utf8');
-		const usedKeys = [...source.matchAll(/this\.t\('([^']+)'\)/g)].map(match => match[1]);
+	it('defines every literal translation key used by inventory presentation adapters', () => {
+		const sources = [
+			'src/platform/jlceda-v3/presentation/iframe-inventory-item-panel.ts',
+			'src/platform/jlceda-v3/presentation/native-inventory-controller.ts',
+		].map(path => readFileSync(resolve(path), 'utf8'));
+		const usedKeys = sources.flatMap(source => [...source.matchAll(/this\.t\('([^']+)'\)/g)].map(match => match[1]));
 		for (const language of ['zh-Hans', 'en']) {
 			const available = readMessages(language);
 			expect(usedKeys.filter(key => !(key in available)), `${language} missing translation keys`).toEqual([]);
@@ -89,8 +92,17 @@ describe('runtime locale files', () => {
 				'inventoryOverview',
 				'addByLcsc',
 				'addManual',
+				'checkExternalBomStock',
+				'compareBomVersions',
+				'stockOutBomFile',
+				'inventoryTransactions',
+				'projectPlanning',
+				'substituteLinks',
 				'importOrder',
+				'importPackageCode',
 				'exportBackup',
+				'automaticBackupSettings',
+				'restoreBackup',
 				'viewDiagnosticLogs',
 				'exportDiagnosticLogs',
 				'about',
@@ -98,12 +110,18 @@ describe('runtime locale files', () => {
 			sch: [
 				'inventoryOverview',
 				'placeFromInventory',
+				'locateSelectedInventory',
+				'checkCurrentDesignStock',
+				'projectPlanning',
 				'addByLcsc',
 				'viewDiagnosticLogs',
 				'exportDiagnosticLogs',
 			],
 			pcb: [
 				'inventoryOverview',
+				'locateSelectedInventory',
+				'checkCurrentDesignStock',
+				'projectPlanning',
 				'addByLcsc',
 				'viewDiagnosticLogs',
 				'exportDiagnosticLogs',

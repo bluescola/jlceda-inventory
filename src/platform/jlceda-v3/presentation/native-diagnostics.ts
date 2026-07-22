@@ -284,6 +284,8 @@ function simplifyDetails(details: DiagnosticDetails | undefined, type: Diagnosti
 				'opened',
 				'packageLength',
 				'path',
+				'pathKind',
+				'pathLength',
 				'reason',
 				'returnedType',
 				'stage',

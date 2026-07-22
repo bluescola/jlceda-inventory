@@ -8,6 +8,7 @@ import type {
 	InventoryItemSuggestion,
 } from '../../presentation/iframe-inventory-item-protocol';
 import type { InventoryStockDraftValue } from './inventory-stock-draft';
+import { formatStructuredLocation } from '../../../../features/inventory/domain/inventory-metadata';
 import {
 	INVENTORY_ITEM_IFRAME_ID,
 	INVENTORY_ITEM_PROTOCOL_VERSION,
@@ -42,10 +43,17 @@ interface PanelElements {
 	package: HTMLInputElement;
 	description: HTMLTextAreaElement;
 	quantity: HTMLInputElement;
+	minimumQuantity: HTMLInputElement;
 	precisionExact: HTMLInputElement;
 	precisionEstimated: HTMLInputElement;
 	depleted: HTMLInputElement;
+	favorite: HTMLInputElement;
 	location: HTMLInputElement;
+	datasheetUrl: HTMLInputElement;
+	locationCabinet: HTMLInputElement;
+	locationBox: HTMLInputElement;
+	locationRow: HTMLInputElement;
+	locationColumn: HTMLInputElement;
 	locationOptions: HTMLElement;
 	chooseLocation: HTMLButtonElement;
 	note: HTMLTextAreaElement;
@@ -172,11 +180,19 @@ function renderEdit(
 	setText('label-package', request.labels.package);
 	setText('label-description', request.labels.description);
 	setText('label-quantity', request.labels.quantity);
+	setText('label-minimum-quantity', request.labels.minimumQuantity);
 	setText('label-precision', request.labels.precision);
 	setText('label-exact', request.labels.exact);
 	setText('label-estimated', request.labels.estimated);
 	setText('label-depleted', request.labels.depleted);
+	setText('label-favorite', request.labels.favorite);
 	setText('label-location', request.labels.location);
+	setText('label-datasheet', request.labels.datasheet);
+	setText('label-structured-location', request.labels.structuredLocation);
+	setText('label-location-cabinet', request.labels.locationCabinet);
+	setText('label-location-box', request.labels.locationBox);
+	setText('label-location-row', request.labels.locationRow);
+	setText('label-location-column', request.labels.locationColumn);
 	setText('label-note', request.labels.note);
 	elements.editCancel.textContent = request.labels.cancel;
 	elements.editSave.textContent = request.labels.save;
@@ -272,6 +288,7 @@ function renderCompare(
 function renderDetails(target: HTMLDListElement, item: InventoryItemPanelSnapshot, labels: InventoryItemPanelLabels): void {
 	target.replaceChildren();
 	const precision = item.precision === 'exact' ? labels.exact : item.precision === 'estimated' ? labels.estimated : labels.unknown;
+	const replenishment = replenishmentLabel(item, labels);
 	const rows: Array<[string, string]> = [
 		[labels.lcscPartNumber, item.identity.lcscPartNumber],
 		[labels.supplierId, item.identity.supplierId],
@@ -281,9 +298,14 @@ function renderDetails(target: HTMLDListElement, item: InventoryItemPanelSnapsho
 		[labels.package, item.identity.package],
 		[labels.description, item.identity.description],
 		[labels.quantity, item.quantity === null ? labels.unknown : String(item.quantity)],
+		[labels.minimumQuantity, item.minimumQuantity === undefined ? labels.emptyValue : String(item.minimumQuantity)],
 		[labels.precision, precision],
 		[labels.stockState, item.state === 'depleted' ? labels.depleted : labels.inStock],
+		[labels.replenishmentStatus, replenishment],
+		[labels.favorite, item.favorite ? labels.favoriteYes : labels.favoriteNo],
 		[labels.location, item.location],
+		[labels.structuredLocation, formatStructuredLocation(item.structuredLocation) ?? ''],
+		[labels.datasheet, item.datasheetUrl],
 		[labels.note, item.note],
 		[labels.marketplace, item.marketplaceStatus],
 		[labels.edaModel, item.edaModelStatus],
@@ -300,6 +322,17 @@ function renderDetails(target: HTMLDListElement, item: InventoryItemPanelSnapsho
 		const detail = document.createElement('dd');
 		detail.textContent = value || labels.emptyValue;
 		target.append(term, detail);
+	}
+}
+
+function replenishmentLabel(item: InventoryItemPanelSnapshot, labels: InventoryItemPanelLabels): string {
+	switch (item.replenishmentStatus) {
+		case 'depleted': return labels.replenishmentDepleted;
+		case 'low': return labels.replenishmentLow;
+		case 'needs-count': return labels.replenishmentNeedsCount;
+		case 'not-configured': return labels.replenishmentNotConfigured;
+		case 'possibly-low': return labels.replenishmentPossiblyLow;
+		case 'sufficient': return labels.replenishmentSufficient;
 	}
 }
 
@@ -372,6 +405,16 @@ function validateEditState(value: InventoryItemEditFormState, labels: InventoryI
 	if (!/^\d+$/.test(quantity) || !Number.isSafeInteger(Number(quantity))) {
 		return { ok: false, message: labels.quantityInteger, focus: element('edit-quantity', HTMLInputElement) };
 	}
+	const minimumQuantity = value.minimumQuantity?.trim() ?? '';
+	if (minimumQuantity
+		&& (!/^\d+$/.test(minimumQuantity)
+			|| !Number.isSafeInteger(Number(minimumQuantity))
+			|| Number(minimumQuantity) <= 0)) {
+		return { ok: false, message: labels.minimumQuantityPositive, focus: element('edit-minimum-quantity', HTMLInputElement) };
+	}
+	if (!isValidDatasheetUrl(value.datasheetUrl)) {
+		return { ok: false, message: labels.datasheetInvalid, focus: element('edit-datasheet', HTMLInputElement) };
+	}
 	const depleted = value.depleted || quantity === '0';
 	return {
 		ok: true,
@@ -379,6 +422,7 @@ function validateEditState(value: InventoryItemEditFormState, labels: InventoryI
 			...value,
 			lcscPartNumber,
 			quantity: depleted ? '0' : quantity,
+			minimumQuantity,
 			precision: depleted ? 'exact' : value.precision,
 			depleted,
 		},
@@ -393,7 +437,14 @@ function setEditState(elements: PanelElements, value: InventoryItemEditFormState
 	elements.manufacturerPartNumber.value = value.manufacturerPartNumber;
 	elements.package.value = value.package;
 	elements.description.value = value.description;
+	elements.minimumQuantity.value = value.minimumQuantity ?? '';
+	elements.favorite.checked = value.favorite === true;
 	elements.location.value = value.location;
+	elements.datasheetUrl.value = value.datasheetUrl;
+	elements.locationCabinet.value = value.locationCabinet;
+	elements.locationBox.value = value.locationBox;
+	elements.locationRow.value = value.locationRow;
+	elements.locationColumn.value = value.locationColumn;
 	elements.note.value = value.note;
 	const stockDraft = createInventoryStockDraftSession({
 		quantity: value.quantity,
@@ -414,9 +465,16 @@ function readEditState(elements: PanelElements): InventoryItemEditFormState {
 		package: elements.package.value,
 		description: elements.description.value,
 		quantity: elements.quantity.value,
+		minimumQuantity: elements.minimumQuantity.value,
 		precision: elements.precisionEstimated.checked ? 'estimated' : 'exact',
 		depleted: elements.depleted.checked,
+		favorite: elements.favorite.checked,
 		location: elements.location.value,
+		datasheetUrl: elements.datasheetUrl.value,
+		locationCabinet: elements.locationCabinet.value,
+		locationBox: elements.locationBox.value,
+		locationRow: elements.locationRow.value,
+		locationColumn: elements.locationColumn.value,
 		note: elements.note.value,
 	};
 }
@@ -501,10 +559,17 @@ function getElements(): PanelElements {
 		package: element('edit-package', HTMLInputElement),
 		description: element('edit-description', HTMLTextAreaElement),
 		quantity: element('edit-quantity', HTMLInputElement),
+		minimumQuantity: element('edit-minimum-quantity', HTMLInputElement),
 		precisionExact: element('precision-exact', HTMLInputElement),
 		precisionEstimated: element('precision-estimated', HTMLInputElement),
 		depleted: element('edit-depleted', HTMLInputElement),
+		favorite: element('edit-favorite', HTMLInputElement),
 		location: element('edit-location', HTMLInputElement),
+		datasheetUrl: element('edit-datasheet', HTMLInputElement),
+		locationCabinet: element('edit-location-cabinet', HTMLInputElement),
+		locationBox: element('edit-location-box', HTMLInputElement),
+		locationRow: element('edit-location-row', HTMLInputElement),
+		locationColumn: element('edit-location-column', HTMLInputElement),
 		locationOptions: element('location-options', HTMLElement),
 		chooseLocation: element('choose-location', HTMLButtonElement),
 		note: element('edit-note', HTMLTextAreaElement),
@@ -529,9 +594,29 @@ function editInputs(elements: PanelElements): Array<HTMLInputElement | HTMLTextA
 		elements.package,
 		elements.description,
 		elements.quantity,
+		elements.minimumQuantity,
 		elements.location,
+		elements.datasheetUrl,
+		elements.locationCabinet,
+		elements.locationBox,
+		elements.locationRow,
+		elements.locationColumn,
 		elements.note,
 	];
+}
+
+function isValidDatasheetUrl(value: string): boolean {
+	const normalized = value.trim();
+	if (!normalized) {
+		return true;
+	}
+	try {
+		const url = new URL(normalized);
+		return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
+	}
+	catch {
+		return false;
+	}
 }
 
 function setButtonsDisabled(elements: PanelElements, disabled: boolean): void {

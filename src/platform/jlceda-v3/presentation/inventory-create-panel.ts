@@ -1,4 +1,5 @@
 import type { EdaModelReference, PartIdentity, QuantityPrecision, StockState } from '../../../features/inventory/domain/inventory-item';
+import type { StructuredInventoryLocation } from '../../../features/inventory/domain/inventory-metadata';
 import type { DiagnosticTrace } from './native-diagnostics';
 
 export type InventoryCreateMode = 'custom' | 'lcsc';
@@ -15,8 +16,15 @@ export interface InventoryCreateFormState {
 	description: string;
 	quantityMode: InventoryCreateQuantityMode;
 	quantity: string;
+	minimumQuantity?: string;
+	favorite?: boolean;
 	categoryId: string;
 	location: string;
+	datasheetUrl: string;
+	locationCabinet: string;
+	locationBox: string;
+	locationRow: string;
+	locationColumn: string;
 	note: string;
 }
 
@@ -25,8 +33,12 @@ export interface InventoryCreateDraft {
 	quantity: number | null;
 	precision: QuantityPrecision;
 	state: StockState;
+	minimumQuantity?: number;
+	favorite?: boolean;
 	categoryId?: string;
 	location?: string;
+	datasheetUrl?: string;
+	structuredLocation?: StructuredInventoryLocation;
 	note?: string;
 }
 
@@ -62,6 +74,8 @@ export interface InventoryCreateDuplicateSnapshot {
 	state: StockState;
 	categoryName?: string;
 	location?: string;
+	datasheetUrl?: string;
+	structuredLocation?: StructuredInventoryLocation;
 	note?: string;
 }
 

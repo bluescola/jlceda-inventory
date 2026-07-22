@@ -148,6 +148,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		let pollStarted = false;
 		let ready = false;
 		let settled = false;
+		let nativeCloseRequested = false;
 		let readyDeadline: number | undefined;
 		let lastObservedStage: InventoryOverviewPanelStage | undefined;
 		const observedStages = new Set<string>();
@@ -220,7 +221,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 							request,
 							result.operation,
 							onOperation,
-							() => !settled,
+							() => !settled && !nativeCloseRequested,
 							trace,
 						));
 					}
@@ -232,7 +233,20 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				stopAfterReadFailure(error);
 			}
 		};
+		const processNativeClose = (): void => {
+			if (settled || nativeCloseRequested) {
+				return;
+			}
+			nativeCloseRequested = true;
+			void operationQueue.then(
+				() => resolveOutcome({ status: 'cancelled' }),
+				() => resolveOutcome({ status: 'cancelled' }),
+			);
+		};
 		const poll = (): void => {
+			if (nativeCloseRequested) {
+				return;
+			}
 			try {
 				const activeRequestId = bridgeRequestId(this.host.read(INVENTORY_OVERVIEW_REQUEST_KEY));
 				if (activeRequestId !== request.requestId) {
@@ -279,10 +293,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			});
 			opened = await this.host.open({
 				title: request.labels.title,
-				onClose: () => {
-					readResult();
-					resolveOutcome({ status: 'cancelled' });
-				},
+				onClose: processNativeClose,
 				onWindowControl: async (action) => {
 					trace?.info('inventory-overview-panel.iframe.window-control', { status: action });
 					if (!await this.host.write(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, {
@@ -476,6 +487,13 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			stockAll: this.t('inventoryOverview.stockAll'),
 			stockInStock: this.t('inventoryOverview.stockInStock'),
 			stockDepleted: this.t('inventoryOverview.stockDepleted'),
+			replenishmentFilter: this.t('inventoryOverview.replenishmentFilter'),
+			replenishmentAll: this.t('inventoryOverview.replenishmentAll'),
+			replenishmentNeedsReplenishment: this.t('inventoryOverview.replenishmentNeedsReplenishment'),
+			replenishmentStocktakeRequired: this.t('inventoryOverview.replenishmentStocktakeRequired'),
+			favoriteFilter: this.t('inventoryOverview.favoriteFilter'),
+			favoriteAll: this.t('inventoryOverview.favoriteAll'),
+			favoriteOnly: this.t('inventoryOverview.favoriteOnly'),
 			modelFilter: this.t('inventoryOverview.modelFilter'),
 			modelAll: this.t('inventoryOverview.modelAll'),
 			modelAvailable: this.t('inventoryOverview.modelAvailable'),
@@ -489,12 +507,18 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			sortUpdated: this.t('inventoryOverview.sortUpdated'),
 			sortCategory: this.t('inventoryOverview.sortCategory'),
 			clearFilters: this.t('inventoryOverview.clearFilters'),
+			columnSettings: this.t('inventoryOverview.columnSettings'),
+			columnPartIdentifier: this.t('inventoryOverview.columnPartIdentifier'),
+			restoreDefaultColumns: this.t('inventoryOverview.restoreDefaultColumns'),
+			exportReplenishment: this.t('inventoryOverview.exportReplenishment'),
 			refresh: this.t('inventoryOverview.refresh'),
 			itemsCount: this.t('inventoryOverview.itemsCount'),
 			filteredCount: this.t('inventoryOverview.filteredCount'),
 			selectedCount: this.t('inventoryOverview.selectedCount'),
 			selectAllFiltered: this.t('inventoryOverview.selectAllFiltered'),
 			clearSelection: this.t('inventoryOverview.clearSelection'),
+			deleteSelected: this.t('inventoryOverview.deleteSelected'),
+			confirmDeleteSelected: this.t('inventoryOverview.confirmDeleteSelected'),
 			moveToCategory: this.t('inventoryOverview.moveToCategory'),
 			primaryCategory: this.t('inventoryOverview.primaryCategory'),
 			secondaryCategory: this.t('inventoryOverview.secondaryCategory'),
@@ -507,7 +531,15 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			columnNumber: this.t('inventoryOverview.columnNumber'),
 			columnCategory: this.t('inventoryOverview.columnCategory'),
 			columnQuantity: this.t('inventory.quantityLabel'),
+			columnMinimumQuantity: this.t('inventoryOverview.columnMinimumQuantity'),
+			columnReplenishment: this.t('inventoryOverview.columnReplenishment'),
 			columnLocation: this.t('inventory.locationLabel'),
+			structuredLocation: this.t('inventoryItem.structuredLocation'),
+			locationCabinet: this.t('inventoryItem.locationCabinet'),
+			locationBox: this.t('inventoryItem.locationBox'),
+			locationRow: this.t('inventoryItem.locationRow'),
+			locationColumn: this.t('inventoryItem.locationColumn'),
+			datasheet: this.t('inventoryItem.datasheet'),
 			columnModel: this.t('inventoryOverview.columnModel'),
 			columnUpdatedAt: this.t('inventoryItem.updatedAt'),
 			columnActions: this.t('inventoryOverview.columnActions'),
@@ -525,6 +557,15 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			depleted: this.t('inventory.depleted'),
 			inStock: this.t('inventory.inStock'),
 			stockState: this.t('inventoryItem.stockState'),
+			favorite: this.t('inventoryItem.favorite'),
+			favoriteYes: this.t('inventoryItem.favoriteYes'),
+			favoriteNo: this.t('inventoryItem.favoriteNo'),
+			replenishmentDepleted: this.t('inventoryItem.replenishment.depleted'),
+			replenishmentLow: this.t('inventoryItem.replenishment.low'),
+			replenishmentNeedsCount: this.t('inventoryItem.replenishment.needsCount'),
+			replenishmentNotConfigured: this.t('inventoryItem.replenishment.notConfigured'),
+			replenishmentPossiblyLow: this.t('inventoryItem.replenishment.possiblyLow'),
+			replenishmentSufficient: this.t('inventoryItem.replenishment.sufficient'),
 			note: this.t('inventory.noteLabel'),
 			marketplace: this.t('marketplace.section'),
 			marketplaceFromOrder: this.t('marketplace.fromOrder'),
@@ -547,6 +588,8 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			quantityRequired: this.t('inventoryItem.quantityRequired'),
 			quantityInteger: this.t('inventoryItem.quantityInteger'),
 			quantityNonNegative: this.t('inventoryItem.quantityNonNegative'),
+			minimumQuantityPositive: this.t('inventoryItem.minimumQuantityPositive'),
+			datasheetInvalid: this.t('inventoryItem.datasheetInvalid'),
 			existing: this.t('inventoryItem.existing'),
 			candidate: this.t('inventoryItem.candidate'),
 			confirmMerge: this.t('inventoryItem.confirmMerge'),
@@ -557,6 +600,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			editItem: this.t('inventoryOverview.editItem'),
 			deleteItem: this.t('inventoryOverview.deleteItem'),
 			openMarketplace: this.t('marketplace.open'),
+			openDatasheet: this.t('inventoryItem.openDatasheet'),
 			retryModel: this.t('edaModel.retry'),
 			copyCommon: this.t('inventory.copyCommon'),
 			emptyResults: this.t('inventoryOverview.emptyResults'),

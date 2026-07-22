@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="und">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title></title>
+	<style>/* __DESIGN_STOCK_CHECK_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="panel-shell" id="panel-shell" aria-busy="true">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">...</span>
+		</div>
+
+		<section class="report" id="report" hidden>
+			<header class="report-header">
+				<dl class="report-meta">
+					<div><dt id="source-label"></dt><dd id="source-value"></dd></div>
+					<div><dt id="board-quantity-label"></dt><dd id="board-quantity-value"></dd></div>
+					<div><dt id="total-rows-label"></dt><dd id="total-rows-value"></dd></div>
+				</dl>
+				<div class="status-summary" role="list">
+					<div class="summary-item status-sufficient" role="listitem"><span id="summary-sufficient-label"></span><strong id="summary-sufficient-value"></strong></div>
+					<div class="summary-item status-insufficient" role="listitem"><span id="summary-insufficient-label"></span><strong id="summary-insufficient-value"></strong></div>
+					<div class="summary-item status-review" role="listitem"><span id="summary-review-label"></span><strong id="summary-review-value"></strong></div>
+					<div class="summary-item status-stocktake" role="listitem"><span id="summary-stocktake-label"></span><strong id="summary-stocktake-value"></strong></div>
+					<div class="summary-item status-missing" role="listitem"><span id="summary-missing-label"></span><strong id="summary-missing-value"></strong></div>
+					<div class="summary-item status-unmatched" role="listitem"><span id="summary-unmatched-label"></span><strong id="summary-unmatched-value"></strong></div>
+				</div>
+				<div class="report-controls">
+					<label for="status-filter" id="status-filter-label"></label>
+					<select id="status-filter"></select>
+				</div>
+			</header>
+
+			<div class="table-region" id="table-region">
+				<table>
+					<thead>
+						<tr>
+							<th id="column-part-number"></th>
+							<th id="column-name"></th>
+							<th id="column-manufacturer-part"></th>
+							<th id="column-package"></th>
+							<th id="column-designators"></th>
+							<th id="column-unit-quantity" class="numeric"></th>
+							<th id="column-required-quantity" class="numeric"></th>
+							<th id="column-available-quantity" class="numeric"></th>
+							<th id="column-shortage-quantity" class="numeric"></th>
+							<th id="column-status"></th>
+						</tr>
+					</thead>
+					<tbody id="report-rows"></tbody>
+				</table>
+				<p class="empty-report" id="empty-report" hidden></p>
+			</div>
+
+			<div class="pager" id="pager">
+				<button id="previous-page" class="icon-button" type="button"><span aria-hidden="true">&larr;</span></button>
+				<span id="page-status" aria-live="polite"></span>
+				<button id="next-page" class="icon-button" type="button"><span aria-hidden="true">&rarr;</span></button>
+			</div>
+
+			<footer class="actions">
+				<p class="operation-status" id="operation-status" aria-live="polite"></p>
+				<button id="close" class="button button-secondary" type="button"></button>
+				<button id="export-csv" class="button button-primary" type="button"></button>
+			</footer>
+		</section>
+
+		<p class="connection-error" id="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __DESIGN_STOCK_CHECK_INLINE_JS__ */</script>
+</body>
+</html>

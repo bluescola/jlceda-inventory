@@ -25,12 +25,24 @@ export function importOrderFile(): Promise<void> {
 	return withCurrentLanguage(() => controller.importOrderFile());
 }
 
+export function importPackageCode(): Promise<void> {
+	return withCurrentLanguage(() => controller.importPackageCode());
+}
+
 export function importEdaCategories(): Promise<void> {
 	return withCurrentLanguage(() => controller.importEdaCategories());
 }
 
 export function exportInventoryBackup(): Promise<void> {
 	return withCurrentLanguage(() => controller.exportInventoryBackup());
+}
+
+export function configureAutomaticBackup(): Promise<void> {
+	return withCurrentLanguage(() => controller.configureAutomaticBackup());
+}
+
+export function restoreInventoryBackup(): Promise<void> {
+	return withCurrentLanguage(() => controller.restoreInventoryBackup());
 }
 
 export function showDiagnosticLogs(): Promise<void> {
@@ -43,6 +55,38 @@ export function exportDiagnosticLogs(): Promise<void> {
 
 export function placeFromInventory(): Promise<void> {
 	return withCurrentLanguage(() => controller.placeFromInventory());
+}
+
+export function locateSelectedInventory(): Promise<void> {
+	return withCurrentLanguage(() => controller.locateSelectedInventory());
+}
+
+export function checkCurrentDesignStock(): Promise<void> {
+	return withCurrentLanguage(() => controller.checkCurrentDesignStock());
+}
+
+export function checkExternalBomStock(): Promise<void> {
+	return withCurrentLanguage(() => controller.checkExternalBomStock());
+}
+
+export function compareBomVersions(): Promise<void> {
+	return withCurrentLanguage(() => controller.compareBomVersions());
+}
+
+export function stockOutBomFile(): Promise<void> {
+	return withCurrentLanguage(() => controller.stockOutBomFile());
+}
+
+export function openInventoryTransactions(): Promise<void> {
+	return withCurrentLanguage(() => controller.openInventoryTransactions());
+}
+
+export function openProjectPlanning(): Promise<void> {
+	return withCurrentLanguage(() => controller.openProjectPlanning());
+}
+
+export function manageSubstituteLinks(): Promise<void> {
+	return withCurrentLanguage(() => controller.manageSubstituteLinks());
 }
 
 export function about(): Promise<void> {

@@ -57,6 +57,8 @@
 							</div>
 						</fieldset>
 						<label class="field-row"><span><span id="quantity-label"></span><span class="required">*</span></span><input id="quantity" type="number" inputmode="numeric" step="1"></label>
+						<label class="field-row"><span id="minimum-quantity-label"></span><input id="minimum-quantity" type="number" inputmode="numeric" min="1" step="1"></label>
+						<label class="field-row checkbox-field"><span id="favorite-label"></span><input id="favorite" type="checkbox"></label>
 						<label class="field-row"><span id="primary-category-label"></span><select id="primary-category"></select></label>
 						<label class="field-row"><span id="secondary-category-label"></span><select id="secondary-category"></select></label>
 						<div class="field-row field-wide">
@@ -67,6 +69,16 @@
 								<div id="location-options" class="location-options" role="listbox" hidden></div>
 							</div>
 						</div>
+						<label class="field-row field-wide"><span id="datasheet-label"></span><input id="datasheet" type="url" inputmode="url" autocomplete="off" maxlength="2048"></label>
+						<fieldset class="field-row field-wide structured-location-field">
+							<legend id="structured-location-label"></legend>
+							<div class="structured-location-grid">
+								<label><span id="location-cabinet-label"></span><input id="location-cabinet" type="text" autocomplete="off" maxlength="64"></label>
+								<label><span id="location-box-label"></span><input id="location-box" type="text" autocomplete="off" maxlength="64"></label>
+								<label><span id="location-row-label"></span><input id="location-row" type="text" autocomplete="off" maxlength="64"></label>
+								<label><span id="location-column-label"></span><input id="location-column" type="text" autocomplete="off" maxlength="64"></label>
+							</div>
+						</fieldset>
 						<label class="field-row field-wide field-textarea"><span id="note-label"></span><textarea id="note" maxlength="4000"></textarea></label>
 					</div>
 				</section>

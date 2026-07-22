@@ -6,7 +6,8 @@ import { normalizeInventoryText } from '../../inventory/domain/inventory-item';
 
 type SourceRow = Record<string, unknown>;
 
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_ORDER_FILE_BYTES = 10 * 1024 * 1024;
+export const MAX_ORDER_IMPORT_FILES = 100;
 const MAX_WORKSHEETS = 32;
 const MAX_WORKSHEET_COLUMNS = 128;
 const MAX_HEADER_SCAN_ROWS = 100;
@@ -308,8 +309,8 @@ function assertFileSize(content: string | ArrayBuffer): void {
 	const byteLength = typeof content === 'string'
 		? new TextEncoder().encode(content).byteLength
 		: content.byteLength;
-	if (byteLength > MAX_FILE_BYTES) {
-		throw new Error(`Order file exceeds the ${MAX_FILE_BYTES / 1024 / 1024} MB limit.`);
+	if (byteLength > MAX_ORDER_FILE_BYTES) {
+		throw new Error(`Order file exceeds the ${MAX_ORDER_FILE_BYTES / 1024 / 1024} MB limit.`);
 	}
 }
 

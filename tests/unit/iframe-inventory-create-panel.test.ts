@@ -1,6 +1,8 @@
 import type { Translate } from '../../src/platform/jlceda-v3/eda/i18n-client';
 import type { InventoryCreateIFrameHost } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-create-panel';
 import type { InventoryCreateLabels } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-create-protocol';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	IFrameInventoryCreatePanel,
@@ -32,6 +34,8 @@ const labelKeys = [
 	'description',
 	'quantityMode',
 	'quantity',
+	'minimumQuantity',
+	'favorite',
 	'exact',
 	'estimated',
 	'unknown',
@@ -42,6 +46,12 @@ const labelKeys = [
 	'noSecondaryCategory',
 	'location',
 	'chooseLocation',
+	'datasheet',
+	'structuredLocation',
+	'locationCabinet',
+	'locationBox',
+	'locationRow',
+	'locationColumn',
 	'note',
 	'queryEda',
 	'openMarketplace',
@@ -70,6 +80,8 @@ const labelKeys = [
 	'quantityInteger',
 	'quantityNonNegative',
 	'quantityTooLarge',
+	'minimumQuantityPositive',
+	'datasheetInvalid',
 	'loading',
 	'connectionError',
 	'operationError',
@@ -122,6 +134,19 @@ async function readRequest(host: FakeHost) {
 	return request;
 }
 
+async function settle<T>(promise: Promise<T>): Promise<T> {
+	await vi.advanceTimersByTimeAsync(500);
+	return promise;
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+	let resolve: (value: T) => void = () => undefined;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
 function validForm() {
 	return {
 		lcscPartNumber: 'C233991',
@@ -134,8 +159,15 @@ function validForm() {
 		description: 'Description',
 		quantityMode: 'estimated' as const,
 		quantity: '12',
+		minimumQuantity: '5',
+		favorite: true,
 		categoryId: 'child',
 		location: 'Drawer A',
+		datasheetUrl: 'https://example.com/microphone.pdf',
+		locationCabinet: 'A',
+		locationBox: '1',
+		locationRow: '2',
+		locationColumn: '3',
 		note: 'Note',
 	};
 }
@@ -196,7 +228,59 @@ describe('iframe inventory create protocol', () => {
 	});
 });
 
+describe('inventory create form markup', () => {
+	it('exposes minimum-stock and favorite controls', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-create/inventory-create.html'), 'utf8');
+
+		expect(html).toContain('id="minimum-quantity"');
+		expect(html).toContain('id="favorite"');
+		expect(html).toContain('id="datasheet"');
+		expect(html).toContain('id="location-cabinet"');
+	});
+});
+
 describe('iframe inventory create panel', () => {
+	it.each([
+		{ action: 'save' as const, merged: false },
+		{ action: 'confirm-merge' as const, merged: true },
+	])('returns saved after an active $action succeeds during a native close', async ({ action, merged }) => {
+		const host = new FakeHost();
+		const outcome = deferred<{ stage: 'succeeded' }>();
+		const handler = vi.fn(() => outcome.promise);
+		const pending = new IFrameInventoryCreatePanel(t, host).open({ mode: 'lcsc' }, handler);
+		const request = await readRequest(host);
+		host.values.set(INVENTORY_CREATE_EVENT_KEY, {
+			protocolVersion: INVENTORY_CREATE_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		host.values.set(INVENTORY_CREATE_EVENT_KEY, {
+			protocolVersion: INVENTORY_CREATE_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'action',
+			operationId: `${action}-active`,
+			action,
+			form: validForm(),
+			...(action === 'confirm-merge'
+				? { duplicateToken: 'duplicate-token', existing: { id: 'item-existing', expectedRevision: 2 } }
+				: {}),
+		});
+		host.poll();
+		await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
+
+		host.onClose();
+		expect(host.stopPolling).not.toHaveBeenCalled();
+		outcome.resolve({ stage: 'succeeded' });
+		const result = await settle(pending);
+
+		expect(result).toMatchObject({ status: 'saved', merged, draft: { quantity: 12 } });
+		expect(handler).toHaveBeenCalledOnce();
+		expect(host.write).not.toHaveBeenCalledWith(INVENTORY_CREATE_RESPONSE_KEY, expect.anything());
+		expect(host.stopPolling).toHaveBeenCalledOnce();
+		expect(host.close).toHaveBeenCalledOnce();
+	});
+
 	it('keeps the form session open until the IFrame acknowledges a successful save', async () => {
 		const host = new FakeHost();
 		const handler = vi.fn(async () => ({ stage: 'succeeded' as const }));
@@ -244,7 +328,16 @@ describe('iframe inventory create panel', () => {
 		await expect(pending).resolves.toMatchObject({
 			status: 'saved',
 			merged: false,
-			draft: { quantity: 12, precision: 'estimated', state: 'in-stock', categoryId: 'child' },
+			draft: {
+				quantity: 12,
+				precision: 'estimated',
+				state: 'in-stock',
+				minimumQuantity: 5,
+				favorite: true,
+				categoryId: 'child',
+				datasheetUrl: 'https://example.com/microphone.pdf',
+				structuredLocation: { cabinet: 'A', box: '1', row: '2', column: '3' },
+			},
 		});
 		expect(handler).toHaveBeenCalledTimes(1);
 		expect(host.close).toHaveBeenCalledTimes(1);
@@ -265,6 +358,14 @@ describe('iframe inventory create panel', () => {
 		expect(() => normalizeInventoryCreateDraft({
 			...validForm(),
 			quantity: '-2',
+		}, 'lcsc')).toThrowError(InventoryCreateValidationError);
+		expect(() => normalizeInventoryCreateDraft({
+			...validForm(),
+			minimumQuantity: '0',
+		}, 'lcsc')).toThrowError(InventoryCreateValidationError);
+		expect(() => normalizeInventoryCreateDraft({
+			...validForm(),
+			datasheetUrl: 'file:///tmp/data.pdf',
 		}, 'lcsc')).toThrowError(InventoryCreateValidationError);
 	});
 });

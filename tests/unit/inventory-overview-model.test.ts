@@ -1,3 +1,4 @@
+import type { InventoryOverviewColumnPreferences } from '../../src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview-model';
 import type {
 	InventoryOverviewCategorySnapshot,
 	InventoryOverviewItemSnapshot,
@@ -5,20 +6,30 @@ import type {
 import type { InventoryOverviewViewState } from '../../src/platform/jlceda-v3/presentation/inventory-overview-panel';
 import { describe, expect, it } from 'vitest';
 import {
+	canHideInventoryOverviewColumn,
 	captureInventoryOverviewScroll,
+	defaultInventoryOverviewColumnPreferences,
 	filterAndSortInventory,
+	INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY,
 	inventoryCategoryCounts,
 	inventoryItemsForCategoryDrop,
 	inventoryItemsForDrag,
+	inventoryOverviewFocusPage,
 	inventoryOverviewLcscPartNumber,
+	inventoryOverviewLocationLabel,
 	inventoryOverviewPackageLabel,
+	loadInventoryOverviewColumnPreferences,
 	paginateInventory,
+	parseInventoryOverviewColumnPreferences,
 	reorderCategorySiblings,
 	reorderCategorySiblingsByDrop,
 	resolveBulkCategoryTarget,
 	resolveInventoryItemDropCategory,
 	restoreInventoryOverviewScroll,
+	revealInventoryOverviewFocus,
+	saveInventoryOverviewColumnPreferences,
 	selectInventoryOverviewCategory,
+	setInventoryOverviewColumnVisibility,
 	shouldAutoHideInventoryOverview,
 	shouldClearAppliedSearch,
 	shouldSuppressAutoHideForWindowControl,
@@ -51,6 +62,55 @@ const defaultState: InventoryOverviewViewState = {
 };
 
 describe('inventory overview model', () => {
+	it('prefers structured storage while retaining the legacy free-text location', () => {
+		expect(inventoryOverviewLocationLabel({
+			location: 'Legacy shelf',
+			structuredLocation: { cabinet: 'A', box: '2', row: '3', column: '4' },
+		})).toBe('A / 2 / 3 / 4\nLegacy shelf');
+		expect(inventoryOverviewLocationLabel({ location: 'Legacy shelf' })).toBe('Legacy shelf');
+	});
+
+	it('parses versioned column preferences through a strict whitelist and safe defaults', () => {
+		const defaults = defaultInventoryOverviewColumnPreferences();
+		expect(parseInventoryOverviewColumnPreferences(undefined)).toEqual(defaults);
+		expect(parseInventoryOverviewColumnPreferences('{broken')).toEqual(defaults);
+		expect(parseInventoryOverviewColumnPreferences(JSON.stringify({ version: 2, visibleColumns: ['quantity'] }))).toEqual(defaults);
+		expect(parseInventoryOverviewColumnPreferences(JSON.stringify({ version: 1, visibleColumns: ['number'] }))).toEqual(defaults);
+		expect(parseInventoryOverviewColumnPreferences(JSON.stringify({
+			version: 1,
+			visibleColumns: ['number', 'unknown-column', 'quantity', 'quantity'],
+		}))).toEqual({ version: 1, visibleColumns: ['number', 'quantity'] });
+	});
+
+	it('never hides the last stock-information column', () => {
+		let preferences: InventoryOverviewColumnPreferences = { version: 1, visibleColumns: ['number', 'quantity', 'replenishment'] };
+		preferences = setInventoryOverviewColumnVisibility(preferences, 'quantity', false);
+		expect(preferences.visibleColumns).toEqual(['number', 'replenishment']);
+		expect(canHideInventoryOverviewColumn(preferences, 'replenishment')).toBe(false);
+		expect(setInventoryOverviewColumnVisibility(preferences, 'replenishment', false)).toEqual(preferences);
+		expect(setInventoryOverviewColumnVisibility(preferences, 'location', true).visibleColumns)
+			.toEqual(['number', 'replenishment', 'location']);
+	});
+
+	it('degrades local column preference storage failures without affecting the inventory', () => {
+		const throwingStorage = {
+			getItem: () => { throw new Error('blocked'); },
+			setItem: () => { throw new Error('blocked'); },
+		};
+		expect(loadInventoryOverviewColumnPreferences(throwingStorage)).toEqual(defaultInventoryOverviewColumnPreferences());
+		expect(saveInventoryOverviewColumnPreferences(throwingStorage, defaultInventoryOverviewColumnPreferences())).toBe(false);
+
+		const values = new Map<string, string>();
+		const storage = {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => { values.set(key, value); },
+		};
+		const preferences: InventoryOverviewColumnPreferences = { version: 1, visibleColumns: ['minimum-quantity'] };
+		expect(saveInventoryOverviewColumnPreferences(storage, preferences)).toBe(true);
+		expect(values.has(INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY)).toBe(true);
+		expect(loadInventoryOverviewColumnPreferences(storage)).toEqual(preferences);
+	});
+
 	it('uses shared marketplace-style exact, prefix, contains, and stock ranking', () => {
 		const result = filterAndSortInventory(items, categories, { ...defaultState, query: 'c100' });
 		expect(result.map(item => item.id)).toEqual(['exact-stock', 'exact-depleted', 'prefix', 'contains']);
@@ -109,6 +169,28 @@ describe('inventory overview model', () => {
 			modelFilter: 'available',
 		});
 		expect(result.map(item => item.id)).toEqual(['exact-stock']);
+	});
+
+	it('filters replenishment and favorite states independently', () => {
+		const replenishmentItems: InventoryOverviewItemSnapshot[] = [
+			{ ...items[0]!, replenishmentStatus: 'depleted' },
+			{ ...items[1]!, replenishmentStatus: 'low', minimumQuantity: 20, favorite: true },
+			{ ...items[2]!, replenishmentStatus: 'needs-count', minimumQuantity: 5 },
+			{ ...items[3]!, replenishmentStatus: 'sufficient', minimumQuantity: 5, favorite: true },
+		];
+
+		expect(filterAndSortInventory(replenishmentItems, categories, {
+			...defaultState,
+			replenishmentFilter: 'needs-replenishment',
+		}).map(item => item.id)).toEqual(['exact-stock', 'exact-depleted']);
+		expect(filterAndSortInventory(replenishmentItems, categories, {
+			...defaultState,
+			replenishmentFilter: 'stocktake-required',
+		}).map(item => item.id)).toEqual(['prefix']);
+		expect(filterAndSortInventory(replenishmentItems, categories, {
+			...defaultState,
+			favoriteFilter: 'favorites',
+		}).map(item => item.id)).toEqual(['contains', 'exact-stock']);
 	});
 
 	it('searches all categories only when the explicit all-category scope is selected', () => {
@@ -175,6 +257,46 @@ describe('inventory overview model', () => {
 		expect(result.items.map(item => item.id)).toEqual(['contains']);
 	});
 
+	it('resolves the page containing an exact focused item without changing result filters', () => {
+		const result = Array.from({ length: 60 }, (_, index) => ({ id: `item-${index}` }));
+
+		expect(inventoryOverviewFocusPage(result, 'item-52', 25)).toBe(3);
+		expect(inventoryOverviewFocusPage(result, 'missing', 25)).toBeUndefined();
+		expect(inventoryOverviewFocusPage(result, undefined, 25)).toBeUndefined();
+		expect(result).toHaveLength(60);
+	});
+
+	it('scrolls a focused row into view and removes its explicit highlight after the timeout', () => {
+		const classes = new Set<string>();
+		const attributes = new Map<string, string>();
+		let cleanup: (() => void) | undefined;
+		let scheduledDelay: number | undefined;
+		let scrollOptions: ScrollIntoViewOptions | undefined;
+		const target = {
+			classList: {
+				add: (...tokens: string[]) => tokens.forEach(token => classes.add(token)),
+				remove: (...tokens: string[]) => tokens.forEach(token => classes.delete(token)),
+			},
+			setAttribute: (name: string, value: string) => attributes.set(name, value),
+			removeAttribute: (name: string) => attributes.delete(name),
+			scrollIntoView: (options?: ScrollIntoViewOptions) => { scrollOptions = options; },
+		};
+
+		revealInventoryOverviewFocus(target, (callback, delay) => {
+			cleanup = callback;
+			scheduledDelay = delay;
+		});
+
+		expect(classes.has('inventory-row-focused')).toBe(true);
+		expect(attributes.get('aria-current')).toBe('true');
+		expect(scrollOptions).toEqual({ behavior: 'auto', block: 'center', inline: 'nearest' });
+		expect(scheduledDelay).toBe(2600);
+		expect(cleanup).toBeTypeOf('function');
+		cleanup?.();
+		expect(classes.has('inventory-row-focused')).toBe(false);
+		expect(attributes.has('aria-current')).toBe(false);
+	});
+
 	it('returns the complete reordered sibling list for stable category persistence', () => {
 		const reordered = reorderCategorySiblings(categories, 'capacitor', -1);
 		expect(reordered?.map(category => category.id)).toEqual(['capacitor', 'resistor']);
@@ -227,11 +349,12 @@ describe('inventory overview model', () => {
 		expect(() => restoreInventoryOverviewScroll(undefined, position)).not.toThrow();
 	});
 
-	it('auto-hides a visible overview after blur unless a host operation is in flight', () => {
-		expect(shouldAutoHideInventoryOverview(true, false, true)).toBe(true);
-		expect(shouldAutoHideInventoryOverview(false, false, true)).toBe(false);
-		expect(shouldAutoHideInventoryOverview(true, true, true)).toBe(false);
-		expect(shouldAutoHideInventoryOverview(true, false, false)).toBe(false);
+	it('auto-hides only when blur returns focus to the EDA window', () => {
+		expect(shouldAutoHideInventoryOverview(true, false, true, true)).toBe(true);
+		expect(shouldAutoHideInventoryOverview(true, false, true, false)).toBe(false);
+		expect(shouldAutoHideInventoryOverview(false, false, true, true)).toBe(false);
+		expect(shouldAutoHideInventoryOverview(true, true, true, true)).toBe(false);
+		expect(shouldAutoHideInventoryOverview(true, false, false, true)).toBe(false);
 	});
 
 	it('keeps a native minimized title window visible after iframe blur', () => {
@@ -326,7 +449,10 @@ function createItem(
 		quantity: state === 'depleted' ? 0 : 10,
 		precision: 'exact',
 		state,
+		favorite: false,
+		replenishmentStatus: state === 'depleted' ? 'depleted' : 'not-configured',
 		location: '',
+		datasheetUrl: '',
 		note: '',
 		marketplaceEvidence: 'user-confirmed',
 		edaModelStatus: 'available',

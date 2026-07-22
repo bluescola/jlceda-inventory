@@ -27,9 +27,20 @@
 
 				<div class="filter-toolbar">
 					<label class="filter-control"><span id="stock-filter-label"></span><select id="stock-filter"></select></label>
+					<label class="filter-control"><span id="replenishment-filter-label"></span><select id="replenishment-filter"></select></label>
+					<label class="filter-control"><span id="favorite-filter-label"></span><select id="favorite-filter"></select></label>
 					<label class="filter-control"><span id="model-filter-label"></span><select id="model-filter"></select></label>
 					<label class="filter-control"><span id="sort-label"></span><select id="sort-select"></select></label>
+					<div class="column-settings-control">
+						<button id="column-settings" class="icon-button toolbar-icon-button" type="button" aria-controls="column-settings-menu" aria-expanded="false" aria-haspopup="dialog"></button>
+						<div id="column-settings-menu" class="column-settings-menu" role="dialog" hidden>
+							<strong id="column-settings-title"></strong>
+							<div id="column-settings-options" class="column-settings-options" role="group"></div>
+							<button id="restore-default-columns" class="button button-secondary restore-columns" type="button"></button>
+						</div>
+					</div>
 					<button id="clear-filters" class="button button-secondary" type="button"></button>
+					<button id="export-replenishment" class="button button-secondary" type="button"></button>
 					<button id="refresh" class="button button-secondary" type="button"></button>
 				</div>
 			</header>
@@ -62,22 +73,25 @@
 								<select id="bulk-child-category"></select>
 							</div>
 							<button id="apply-move" class="button button-primary" type="button"></button>
+							<button id="delete-selected" class="button button-danger" type="button"></button>
 						</div>
 					</div>
 
 					<div class="table-scroll">
-						<table class="inventory-table">
+						<table id="inventory-table" class="inventory-table">
 							<thead>
 								<tr>
 									<th class="select-column"><input id="select-page" type="checkbox"></th>
 									<th id="column-name"></th>
-									<th id="column-number"></th>
-									<th id="column-package"></th>
-									<th id="column-category"></th>
-									<th id="column-quantity"></th>
-									<th id="column-location"></th>
-									<th id="column-model"></th>
-									<th id="column-updated"></th>
+									<th id="column-number" data-inventory-column="number"></th>
+									<th id="column-package" data-inventory-column="package"></th>
+									<th id="column-category" data-inventory-column="category"></th>
+									<th id="column-quantity" data-inventory-column="quantity"></th>
+									<th id="column-minimum-quantity" data-inventory-column="minimum-quantity"></th>
+									<th id="column-replenishment" data-inventory-column="replenishment"></th>
+									<th id="column-location" data-inventory-column="location"></th>
+									<th id="column-model" data-inventory-column="model"></th>
+									<th id="column-updated" data-inventory-column="updated"></th>
 									<th id="column-actions"></th>
 								</tr>
 							</thead>

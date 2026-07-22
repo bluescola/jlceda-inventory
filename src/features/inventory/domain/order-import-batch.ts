@@ -30,6 +30,11 @@ export interface OrderImportFileSummary {
 	totalQuantity: number;
 }
 
+export interface OrderImportInventoryLink {
+	identityKey: string;
+	inventoryItemId: string;
+}
+
 export type OrderImportDuplicateReason
 	= | 'historical-fingerprint'
 		| 'historical-order-number'
@@ -55,6 +60,8 @@ export interface OrderImportBatchPreview {
 export interface OrderImportFileRecord extends OrderImportFileSummary, Partial<OrderImportDuplicateReference> {
 	status: 'imported' | 'duplicate';
 	result: OrderImportResultSummary;
+	inventoryLinks?: OrderImportInventoryLink[];
+	deduplicationActive?: boolean;
 }
 
 export interface OrderImportBatchRecord {
@@ -74,6 +81,7 @@ export interface OrderImportBatchResult {
 
 const MAX_FILE_NAME_LENGTH = 255;
 const MAX_ORDER_NUMBER_LENGTH = 64;
+const MAX_INVENTORY_LINK_TEXT_LENGTH = 4096;
 const SHA_256_HEX = /^[a-f\d]{64}$/;
 
 export function sanitizeOrderImportFileSummary(input: OrderImportFileSummary): OrderImportFileSummary {
@@ -99,11 +107,44 @@ export function sanitizeOrderImportFileSummary(input: OrderImportFileSummary): O
 export function sanitizeOrderImportBatchRecord(record: OrderImportBatchRecord): OrderImportBatchRecord {
 	return {
 		...record,
-		files: record.files.map(file => ({
-			...file,
-			...sanitizeOrderImportFileSummary(file),
-		})),
+		files: record.files.map((file) => {
+			const inventoryLinks = sanitizeOrderImportInventoryLinks(file.inventoryLinks);
+			return {
+				...file,
+				...sanitizeOrderImportFileSummary(file),
+				inventoryLinks,
+				deduplicationActive: file.status === 'imported'
+					? file.deduplicationActive !== false
+					: undefined,
+			};
+		}),
 	};
+}
+
+function sanitizeOrderImportInventoryLinks(
+	links: OrderImportInventoryLink[] | undefined,
+): OrderImportInventoryLink[] | undefined {
+	if (links === undefined) {
+		return undefined;
+	}
+	if (!Array.isArray(links)) {
+		throw new TypeError('Order import inventory links must be an array.');
+	}
+	const sanitized = new Map<string, OrderImportInventoryLink>();
+	for (const link of links) {
+		const identityKey = sanitizeRequiredText(
+			link.identityKey,
+			MAX_INVENTORY_LINK_TEXT_LENGTH,
+			'Order import inventory identity key',
+		).toLowerCase();
+		const inventoryItemId = sanitizeRequiredText(
+			link.inventoryItemId,
+			MAX_INVENTORY_LINK_TEXT_LENGTH,
+			'Order import inventory item ID',
+		);
+		sanitized.set(identityKey, { identityKey, inventoryItemId });
+	}
+	return [...sanitized.values()];
 }
 
 function sanitizeRequiredText(value: string, maximumLength: number, label: string): string {

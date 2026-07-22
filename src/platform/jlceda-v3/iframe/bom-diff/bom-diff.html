@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="und">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title></title>
+	<style>/* __BOM_DIFF_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="panel-shell" id="panel-shell" aria-busy="true">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">...</span>
+		</div>
+
+		<section class="report" id="report" hidden>
+			<header class="report-header">
+				<dl class="report-meta">
+					<div><dt id="before-file-label"></dt><dd id="before-file-value"></dd></div>
+					<div><dt id="after-file-label"></dt><dd id="after-file-value"></dd></div>
+					<div><dt id="total-changes-label"></dt><dd id="total-changes-value"></dd></div>
+				</dl>
+				<div class="change-summary" role="list">
+					<div class="summary-item change-added" role="listitem"><span id="summary-added-label"></span><strong id="summary-added-value"></strong></div>
+					<div class="summary-item change-removed" role="listitem"><span id="summary-removed-label"></span><strong id="summary-removed-value"></strong></div>
+					<div class="summary-item change-quantity-increased" role="listitem"><span id="summary-increased-label"></span><strong id="summary-increased-value"></strong></div>
+					<div class="summary-item change-quantity-decreased" role="listitem"><span id="summary-decreased-label"></span><strong id="summary-decreased-value"></strong></div>
+					<div class="summary-item change-identity-changed" role="listitem"><span id="summary-identity-label"></span><strong id="summary-identity-value"></strong></div>
+				</div>
+				<div class="report-controls">
+					<label for="change-filter" id="change-filter-label"></label>
+					<select id="change-filter"></select>
+				</div>
+			</header>
+
+			<div class="table-region diff-table-region" id="diff-table-region">
+				<table class="diff-table">
+					<thead>
+						<tr>
+							<th id="column-part-number"></th>
+							<th id="column-change-type"></th>
+							<th id="column-before-quantity" class="numeric"></th>
+							<th id="column-after-quantity" class="numeric"></th>
+							<th id="column-quantity-delta" class="numeric"></th>
+							<th id="column-before-designators"></th>
+							<th id="column-after-designators"></th>
+							<th id="column-identity-changes"></th>
+						</tr>
+					</thead>
+					<tbody id="diff-rows"></tbody>
+				</table>
+				<p class="empty-report" id="diff-empty" hidden></p>
+			</div>
+
+			<div class="pager" id="diff-pager">
+				<button id="diff-previous-page" class="icon-button" type="button"><span aria-hidden="true">&larr;</span></button>
+				<span id="diff-page-status" aria-live="polite"></span>
+				<button id="diff-next-page" class="icon-button" type="button"><span aria-hidden="true">&rarr;</span></button>
+			</div>
+
+			<section class="review-section" aria-labelledby="review-title">
+				<div class="review-header">
+					<h2 id="review-title"></h2>
+					<div class="report-controls">
+						<label for="review-kind" id="review-kind-label"></label>
+						<select id="review-kind"></select>
+					</div>
+				</div>
+				<div class="table-region review-table-region">
+					<table class="review-table">
+						<thead>
+							<tr>
+								<th id="review-column-source"></th>
+								<th id="review-column-second"></th>
+								<th id="review-column-third"></th>
+								<th id="review-column-fourth"></th>
+							</tr>
+						</thead>
+						<tbody id="review-rows"></tbody>
+					</table>
+					<p class="empty-report" id="review-empty" hidden></p>
+				</div>
+				<div class="pager" id="review-pager">
+					<button id="review-previous-page" class="icon-button" type="button"><span aria-hidden="true">&larr;</span></button>
+					<span id="review-page-status" aria-live="polite"></span>
+					<button id="review-next-page" class="icon-button" type="button"><span aria-hidden="true">&rarr;</span></button>
+				</div>
+			</section>
+
+			<footer class="actions">
+				<p class="operation-status" id="operation-status" aria-live="polite"></p>
+				<button id="close" class="button button-secondary" type="button"></button>
+				<button id="export-csv" class="button button-primary" type="button"></button>
+			</footer>
+		</section>
+
+		<p class="connection-error" id="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __BOM_DIFF_INLINE_JS__ */</script>
+</body>
+</html>

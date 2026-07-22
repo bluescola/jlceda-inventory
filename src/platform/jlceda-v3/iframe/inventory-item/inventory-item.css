@@ -142,6 +142,7 @@ textarea {
 
 input[type="text"],
 input[type="number"],
+input[type="url"],
 textarea {
 	width: 100%;
 	min-width: 0;
@@ -153,7 +154,8 @@ textarea {
 }
 
 input[type="text"],
-input[type="number"] {
+input[type="number"],
+input[type="url"] {
 	height: 34px;
 	padding: 0 9px;
 }
@@ -175,6 +177,33 @@ textarea:focus {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
 	gap: 8px;
+}
+
+.structured-location-row {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.structured-location-row legend {
+	padding: 0;
+}
+
+.structured-location-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.structured-location-grid label {
+	display: grid;
+	min-width: 0;
+	gap: 4px;
+}
+
+.structured-location-grid span {
+	color: var(--muted);
+	font-size: 12px;
 }
 
 .location-options {
@@ -440,6 +469,10 @@ textarea:focus {
 		padding-top: 18px;
 		padding-left: 0;
 	}
+
+	.structured-location-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
 }
 
 @media (max-width: 540px) {
@@ -455,6 +488,10 @@ textarea:focus {
 
 	.choice-row legend {
 		grid-column: auto;
+	}
+
+	.structured-location-grid {
+		grid-template-columns: 1fr;
 	}
 
 	.details-list dt {

@@ -170,6 +170,19 @@ textarea {
 	grid-column: 1 / -1;
 }
 
+.checkbox-field {
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	align-self: end;
+	min-height: 35px;
+}
+
+.checkbox-field input {
+	width: 18px;
+	height: 18px;
+	accent-color: var(--primary);
+}
+
 .required {
 	margin-left: 4px;
 	color: var(--danger);
@@ -177,6 +190,7 @@ textarea {
 
 input[type="text"],
 input[type="number"],
+input[type="url"],
 select,
 textarea {
 	width: 100%;
@@ -190,6 +204,7 @@ textarea {
 
 input[type="text"],
 input[type="number"],
+input[type="url"],
 select {
 	height: 35px;
 	padding: 0 9px;
@@ -272,6 +287,34 @@ textarea:disabled {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
 	gap: 8px;
+}
+
+.structured-location-field {
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+.structured-location-field legend {
+	margin-bottom: 5px;
+	padding: 0;
+}
+
+.structured-location-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.structured-location-grid label {
+	display: grid;
+	min-width: 0;
+	gap: 4px;
+}
+
+.structured-location-grid span {
+	color: var(--muted);
+	font-size: 12px;
 }
 
 .field-action {
@@ -532,6 +575,10 @@ textarea:disabled {
 	.suggestion-row {
 		grid-template-columns: 1fr;
 	}
+
+	.structured-location-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
 }
 
 @media (max-width: 540px) {
@@ -554,5 +601,9 @@ textarea:disabled {
 
 	.segmented-control label:nth-child(4) {
 		border-top: 1px solid var(--border);
+	}
+
+	.structured-location-grid {
+		grid-template-columns: 1fr;
 	}
 }

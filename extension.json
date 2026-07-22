@@ -53,14 +53,59 @@
 						"registerFn": "addCustomComponent"
 					},
 					{
+						"id": "checkExternalBomStock",
+						"title": "校验外部 BOM 库存",
+						"registerFn": "checkExternalBomStock"
+					},
+					{
+						"id": "compareBomVersions",
+						"title": "对比 BOM 版本",
+						"registerFn": "compareBomVersions"
+					},
+					{
+						"id": "stockOutBomFile",
+						"title": "按 BOM 整批出库",
+						"registerFn": "stockOutBomFile"
+					},
+					{
+						"id": "inventoryTransactions",
+						"title": "BOM 出库批次与撤销流水",
+						"registerFn": "openInventoryTransactions"
+					},
+					{
+						"id": "projectPlanning",
+						"title": "项目需求与采购",
+						"registerFn": "openProjectPlanning"
+					},
+					{
+						"id": "substituteLinks",
+						"title": "管理替代料关系",
+						"registerFn": "manageSubstituteLinks"
+					},
+					{
 						"id": "importOrder",
 						"title": "导入订单文件",
 						"registerFn": "importOrderFile"
 					},
 					{
+						"id": "importPackageCode",
+						"title": "扫描包装码入库",
+						"registerFn": "importPackageCode"
+					},
+					{
 						"id": "exportBackup",
 						"title": "导出库存备份",
 						"registerFn": "exportInventoryBackup"
+					},
+					{
+						"id": "automaticBackupSettings",
+						"title": "自动备份设置",
+						"registerFn": "configureAutomaticBackup"
+					},
+					{
+						"id": "restoreBackup",
+						"title": "恢复库存备份",
+						"registerFn": "restoreInventoryBackup"
 					},
 					{
 						"id": "viewDiagnosticLogs",
@@ -96,6 +141,21 @@
 						"registerFn": "placeFromInventory"
 					},
 					{
+						"id": "locateSelectedInventory",
+						"title": "定位选中元器件库存",
+						"registerFn": "locateSelectedInventory"
+					},
+					{
+						"id": "checkCurrentDesignStock",
+						"title": "校验当前设计库存",
+						"registerFn": "checkCurrentDesignStock"
+					},
+					{
+						"id": "projectPlanning",
+						"title": "项目需求与采购",
+						"registerFn": "openProjectPlanning"
+					},
+					{
 						"id": "addByLcsc",
 						"title": "按立创 C 编号添加",
 						"registerFn": "addByLcscPartNumber"
@@ -122,6 +182,21 @@
 						"id": "inventoryOverview",
 						"title": "库存总览",
 						"registerFn": "openInventory"
+					},
+					{
+						"id": "locateSelectedInventory",
+						"title": "定位选中元器件库存",
+						"registerFn": "locateSelectedInventory"
+					},
+					{
+						"id": "checkCurrentDesignStock",
+						"title": "校验当前设计库存",
+						"registerFn": "checkCurrentDesignStock"
+					},
+					{
+						"id": "projectPlanning",
+						"title": "项目需求与采购",
+						"registerFn": "openProjectPlanning"
 					},
 					{
 						"id": "addByLcsc",

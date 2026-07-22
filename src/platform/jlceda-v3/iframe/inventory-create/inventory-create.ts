@@ -12,6 +12,7 @@ import type {
 	InventoryCreateQuantityMode,
 } from '../../presentation/inventory-create-panel';
 import type { InventoryCreateQuantityState } from './inventory-create-quantity-state';
+import { formatStructuredLocation } from '../../../../features/inventory/domain/inventory-metadata';
 import {
 	INVENTORY_CREATE_EVENT_KEY,
 	INVENTORY_CREATE_IFRAME_ID,
@@ -43,6 +44,8 @@ interface PanelElements {
 	package: HTMLInputElement;
 	description: HTMLTextAreaElement;
 	quantity: HTMLInputElement;
+	minimumQuantity: HTMLInputElement;
+	favorite: HTMLInputElement;
 	modeExact: HTMLInputElement;
 	modeEstimated: HTMLInputElement;
 	modeUnknown: HTMLInputElement;
@@ -50,6 +53,11 @@ interface PanelElements {
 	primaryCategory: HTMLSelectElement;
 	secondaryCategory: HTMLSelectElement;
 	location: HTMLInputElement;
+	datasheetUrl: HTMLInputElement;
+	locationCabinet: HTMLInputElement;
+	locationBox: HTMLInputElement;
+	locationRow: HTMLInputElement;
+	locationColumn: HTMLInputElement;
 	chooseLocation: HTMLButtonElement;
 	locationOptions: HTMLElement;
 	note: HTMLTextAreaElement;
@@ -494,6 +502,8 @@ function showDuplicate(
 		[labels.manufacturerPartNumber, existing.identity.manufacturerPartNumber ?? ''],
 		[labels.quantity, existing.quantity === null ? labels.unknown : String(existing.quantity)],
 		[labels.location, existing.location ?? ''],
+		[labels.structuredLocation, formatStructuredLocation(existing.structuredLocation) ?? ''],
+		[labels.datasheet, existing.datasheetUrl ?? ''],
 	], labels.emptyValue);
 	renderDetails(elements.pendingDetails, [
 		[labels.name, form.name],
@@ -501,6 +511,8 @@ function showDuplicate(
 		[labels.manufacturerPartNumber, form.manufacturerPartNumber],
 		[labels.quantity, form.quantityMode === 'unknown' ? labels.unknown : form.quantity],
 		[labels.location, form.location],
+		[labels.structuredLocation, structuredLocationFormLabel(form)],
+		[labels.datasheet, form.datasheetUrl],
 	], labels.emptyValue);
 	showModal(elements, elements.duplicateModal);
 }
@@ -523,9 +535,17 @@ function localize(elements: PanelElements, request: IFrameInventoryCreateRequest
 	setText('mode-unknown-label', labels.unknown);
 	setText('mode-depleted-label', labels.depleted);
 	setText('quantity-label', labels.quantity);
+	setText('minimum-quantity-label', labels.minimumQuantity);
+	setText('favorite-label', labels.favorite);
 	setText('primary-category-label', labels.primaryCategory);
 	setText('secondary-category-label', labels.secondaryCategory);
 	setText('location-label', labels.location);
+	setText('datasheet-label', labels.datasheet);
+	setText('structured-location-label', labels.structuredLocation);
+	setText('location-cabinet-label', labels.locationCabinet);
+	setText('location-box-label', labels.locationBox);
+	setText('location-row-label', labels.locationRow);
+	setText('location-column-label', labels.locationColumn);
 	setText('note-label', labels.note);
 	elements.queryEda.textContent = labels.queryEda;
 	elements.openMarketplace.textContent = labels.openMarketplace;
@@ -552,7 +572,14 @@ function fillForm(elements: PanelElements, initial: InventoryCreateFormState): v
 	elements.manufacturerPartNumber.value = initial.manufacturerPartNumber;
 	elements.package.value = initial.package;
 	elements.description.value = initial.description;
+	elements.minimumQuantity.value = initial.minimumQuantity ?? '';
+	elements.favorite.checked = initial.favorite === true;
 	elements.location.value = initial.location;
+	elements.datasheetUrl.value = initial.datasheetUrl;
+	elements.locationCabinet.value = initial.locationCabinet;
+	elements.locationBox.value = initial.locationBox;
+	elements.locationRow.value = initial.locationRow;
+	elements.locationColumn.value = initial.locationColumn;
 	elements.note.value = initial.note;
 }
 
@@ -613,8 +640,15 @@ function readForm(elements: PanelElements, quantityState: InventoryCreateQuantit
 		description: elements.description.value,
 		quantityMode: quantity.mode,
 		quantity: quantity.quantity,
+		minimumQuantity: elements.minimumQuantity.value,
+		favorite: elements.favorite.checked,
 		categoryId: elements.secondaryCategory.value || elements.primaryCategory.value,
 		location: elements.location.value,
+		datasheetUrl: elements.datasheetUrl.value,
+		locationCabinet: elements.locationCabinet.value,
+		locationBox: elements.locationBox.value,
+		locationRow: elements.locationRow.value,
+		locationColumn: elements.locationColumn.value,
 		note: elements.note.value,
 	};
 }
@@ -641,6 +675,16 @@ function validateSave(
 	if (!form.name.trim()) {
 		return { message: labels.nameRequired, field: element('name', HTMLInputElement) };
 	}
+	const minimumQuantity = form.minimumQuantity?.trim() ?? '';
+	if (minimumQuantity
+		&& (!/^\d+$/.test(minimumQuantity)
+			|| !Number.isSafeInteger(Number(minimumQuantity))
+			|| Number(minimumQuantity) <= 0)) {
+		return { message: labels.minimumQuantityPositive, field: element('minimum-quantity', HTMLInputElement) };
+	}
+	if (!isValidDatasheetUrl(form.datasheetUrl)) {
+		return { message: labels.datasheetInvalid, field: element('datasheet', HTMLInputElement) };
+	}
 	if (form.quantityMode === 'unknown' || form.quantityMode === 'depleted') {
 		return undefined;
 	}
@@ -666,6 +710,29 @@ function validateLcsc(value: string, required: boolean, labels: InventoryCreateL
 		return required ? labels.lcscRequired : undefined;
 	}
 	return /^C\d+$/.test(normalized) ? undefined : labels.lcscInvalid;
+}
+
+function structuredLocationFormLabel(form: InventoryCreateFormState): string {
+	return formatStructuredLocation({
+		cabinet: form.locationCabinet,
+		box: form.locationBox,
+		row: form.locationRow,
+		column: form.locationColumn,
+	}) ?? '';
+}
+
+function isValidDatasheetUrl(value: string): boolean {
+	const normalized = value.trim();
+	if (!normalized) {
+		return true;
+	}
+	try {
+		const url = new URL(normalized);
+		return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
+	}
+	catch {
+		return false;
+	}
 }
 
 async function cancel(
@@ -794,6 +861,8 @@ function getElements(): PanelElements {
 		package: element('package', HTMLInputElement),
 		description: element('description', HTMLTextAreaElement),
 		quantity: element('quantity', HTMLInputElement),
+		minimumQuantity: element('minimum-quantity', HTMLInputElement),
+		favorite: element('favorite', HTMLInputElement),
 		modeExact: element('mode-exact', HTMLInputElement),
 		modeEstimated: element('mode-estimated', HTMLInputElement),
 		modeUnknown: element('mode-unknown', HTMLInputElement),
@@ -801,6 +870,11 @@ function getElements(): PanelElements {
 		primaryCategory: element('primary-category', HTMLSelectElement),
 		secondaryCategory: element('secondary-category', HTMLSelectElement),
 		location: element('location', HTMLInputElement),
+		datasheetUrl: element('datasheet', HTMLInputElement),
+		locationCabinet: element('location-cabinet', HTMLInputElement),
+		locationBox: element('location-box', HTMLInputElement),
+		locationRow: element('location-row', HTMLInputElement),
+		locationColumn: element('location-column', HTMLInputElement),
 		chooseLocation: element('choose-location', HTMLButtonElement),
 		locationOptions: element('location-options', HTMLElement),
 		note: element('note', HTMLTextAreaElement),

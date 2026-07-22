@@ -11,6 +11,12 @@ const assets = [
 	{ name: 'inventory-overview', marker: 'INVENTORY_OVERVIEW' },
 	{ name: 'inventory-create', marker: 'INVENTORY_CREATE' },
 	{ name: 'order-import', marker: 'ORDER_IMPORT' },
+	{ name: 'design-stock-check', marker: 'DESIGN_STOCK_CHECK' },
+	{ name: 'bom-mapping', marker: 'BOM_MAPPING' },
+	{ name: 'bom-diff', marker: 'BOM_DIFF' },
+	{ name: 'bom-stock-out', marker: 'BOM_STOCK_OUT' },
+	{ name: 'inventory-transactions', marker: 'INVENTORY_TRANSACTIONS' },
+	{ name: 'project-planning', marker: 'PROJECT_PLANNING' },
 ] as const;
 
 async function main(): Promise<void> {

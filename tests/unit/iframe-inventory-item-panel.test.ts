@@ -2,6 +2,8 @@ import type { InventoryItem } from '../../src/features/inventory/domain/inventor
 import type { Translate } from '../../src/platform/jlceda-v3/eda/i18n-client';
 import type { InventoryItemIFrameHost } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-item-panel';
 import type { DiagnosticTrace } from '../../src/platform/jlceda-v3/presentation/native-diagnostics';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import chineseMessagesJson from '../../locales/zh-Hans.json';
 import { IFrameInventoryItemPanel, InventoryItemPanelUnavailableError } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-item-panel';
@@ -41,6 +43,8 @@ const item: InventoryItem = {
 	precision: 'estimated',
 	state: 'in-stock',
 	location: 'Drawer secret',
+	datasheetUrl: 'https://example.com/original.pdf',
+	structuredLocation: { cabinet: 'A', box: '1', row: '2', column: '3' },
 	note: 'Note secret',
 	source: 'marketplace',
 	createdAt: '2026-07-20T00:00:00.000Z',
@@ -157,6 +161,8 @@ describe('iframe inventory item protocol', () => {
 				quantity: '12',
 				precision: 'estimated',
 				depleted: false,
+				minimumQuantity: '',
+				favorite: false,
 			},
 			locationOptions: [],
 		});
@@ -182,6 +188,17 @@ describe('iframe inventory item protocol', () => {
 	});
 });
 
+describe('inventory item form markup', () => {
+	it('exposes minimum-stock and favorite controls in the full editor', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-item/inventory-item.html'), 'utf8');
+
+		expect(html).toContain('id="edit-minimum-quantity"');
+		expect(html).toContain('id="edit-favorite"');
+		expect(html).toContain('id="edit-datasheet"');
+		expect(html).toContain('id="edit-location-cabinet"');
+	});
+});
+
 describe('iframeInventoryItemPanel', () => {
 	it('passes localized Chinese titles, fields, and system values to the IFrame', async () => {
 		const host = new FakeHost();
@@ -196,12 +213,17 @@ describe('iframeInventoryItemPanel', () => {
 			supplierId: '供应商编号',
 			precision: '数量类型',
 			stockState: '库存状态',
+			minimumQuantity: '最低库存',
+			favorite: '收藏记录',
+			replenishmentStatus: '补货状态',
 			source: '记录来源',
 		});
 		expect(request.item).toMatchObject({
 			marketplaceStatus: '已由用户在商城确认',
 			edaModelStatus: '可用',
 			source: '立创商城',
+			favorite: false,
+			replenishmentStatus: 'not-configured',
 		});
 		expect(request.item.createdAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
 		expect(request.item.createdAt).not.toMatch(/[a-z]/i);
@@ -269,9 +291,16 @@ describe('iframeInventoryItemPanel', () => {
 				package: ' SMD ',
 				description: ' Updated description ',
 				quantity: '19',
+				minimumQuantity: '6',
 				precision: 'estimated',
 				depleted: true,
+				favorite: true,
 				location: ' Drawer A ',
+				datasheetUrl: ' https://example.com/updated.pdf ',
+				locationCabinet: ' B ',
+				locationBox: ' 4 ',
+				locationRow: ' 5 ',
+				locationColumn: ' 6 ',
 				note: ' Updated note ',
 			},
 		});
@@ -289,11 +318,15 @@ describe('iframeInventoryItemPanel', () => {
 			},
 			quantity: 0,
 			precision: 'exact',
+			minimumQuantity: 6,
+			favorite: true,
 			location: 'Drawer A',
+			datasheetUrl: 'https://example.com/updated.pdf',
+			structuredLocation: { cabinet: 'B', box: '4', row: '5', column: '6' },
 			note: 'Updated note',
 		});
 		expect(diagnostic.info).toHaveBeenCalledWith('inventory-item-panel.submitted', {
-			changedFields: 11,
+			changedFields: 18,
 			mode: 'edit',
 			status: 'submitted',
 		});

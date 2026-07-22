@@ -1,7 +1,8 @@
 import type { InventoryDocument } from '../../src/features/inventory/domain/inventory-document';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { INVENTORY_SCHEMA_VERSION } from '../../src/features/inventory/domain/inventory-document';
-import { EdaInventoryRepository, INVENTORY_STORAGE_KEY } from '../../src/platform/jlceda-v3/persistence/eda-inventory-repository';
+import { InventoryDocumentRevisionConflictError } from '../../src/features/inventory/ports/inventory-repository';
+import { EdaInventoryRepository, INVENTORY_RECOVERY_STORAGE_KEY, INVENTORY_STORAGE_KEY } from '../../src/platform/jlceda-v3/persistence/eda-inventory-repository';
 
 afterEach(() => {
 	vi.unstubAllGlobals();
@@ -45,6 +46,70 @@ describe('edaInventoryRepository', () => {
 
 		expect(stored.items[0]?.identity.name).toBe('C307423');
 	});
+
+	it('serializes saves and rejects a stale whole-document write', async () => {
+		let stored = createDocument();
+		const setExtensionUserConfig = vi.fn(async (_key: string, value: InventoryDocument) => {
+			stored = value;
+			return true;
+		});
+		vi.stubGlobal('eda', {
+			sys_Storage: {
+				getExtensionUserConfig: vi.fn(() => stored),
+				setExtensionUserConfig,
+			},
+		});
+		const repository = new EdaInventoryRepository();
+		const first = { ...createDocument(), revision: 2, updatedAt: '2026-07-20T08:00:00.000Z' };
+		const stale = { ...createDocument(), revision: 2, updatedAt: '2026-07-20T09:00:00.000Z' };
+
+		const results = await Promise.allSettled([
+			repository.save(first, 1),
+			repository.save(stale, 1),
+		]);
+
+		expect(results[0].status).toBe('fulfilled');
+		expect(results[1]).toMatchObject({
+			status: 'rejected',
+			reason: expect.any(InventoryDocumentRevisionConflictError),
+		});
+		expect(stored.updatedAt).toBe(first.updatedAt);
+		expect(setExtensionUserConfig).toHaveBeenCalledOnce();
+	});
+
+	it('stores and reloads a detached pre-restore recovery snapshot', async () => {
+		let recovery: unknown;
+		const setExtensionUserConfig = vi.fn(async (key: string, value: unknown) => {
+			if (key === INVENTORY_RECOVERY_STORAGE_KEY) {
+				recovery = value;
+			}
+			return true;
+		});
+		const deleteExtensionUserConfig = vi.fn(async (key: string) => {
+			if (key === INVENTORY_RECOVERY_STORAGE_KEY) {
+				recovery = undefined;
+			}
+			return true;
+		});
+		vi.stubGlobal('eda', {
+			sys_Storage: {
+				getExtensionUserConfig: vi.fn((key: string) => key === INVENTORY_RECOVERY_STORAGE_KEY ? recovery : undefined),
+				setExtensionUserConfig,
+				deleteExtensionUserConfig,
+			},
+		});
+		const repository = new EdaInventoryRepository();
+		const document = createDocument();
+
+		await repository.saveRecoverySnapshot(document);
+		const loaded = await repository.loadRecoverySnapshot();
+		loaded!.items[0].identity.name = 'Changed';
+
+		expect((recovery as InventoryDocument).items[0].identity.name).toBe('C307423');
+		await repository.clearRecoverySnapshot();
+		await expect(repository.loadRecoverySnapshot()).resolves.toBeUndefined();
+		expect(deleteExtensionUserConfig).toHaveBeenCalledWith(INVENTORY_RECOVERY_STORAGE_KEY);
+	});
 });
 
 function createDocument(): InventoryDocument {
@@ -54,6 +119,11 @@ function createDocument(): InventoryDocument {
 		updatedAt: '2026-07-20T07:00:00.000Z',
 		categories: [],
 		orderImportBatches: [],
+		transactions: [],
+		stockOutBatches: [],
+		projectSnapshots: [],
+		purchaseRecords: [],
+		substituteLinks: [],
 		items: [{
 			id: 'item-c307423',
 			identity: {

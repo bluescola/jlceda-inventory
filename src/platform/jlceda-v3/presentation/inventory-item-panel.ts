@@ -1,4 +1,5 @@
 import type { InventoryItem, PartIdentity } from '../../../features/inventory/domain/inventory-item';
+import type { StructuredInventoryLocation } from '../../../features/inventory/domain/inventory-metadata';
 
 export interface InventoryItemEditDraft {
 	identity: {
@@ -12,7 +13,11 @@ export interface InventoryItemEditDraft {
 	};
 	quantity: number;
 	precision: 'exact' | 'estimated';
+	minimumQuantity?: number;
+	favorite?: boolean;
 	location: string;
+	datasheetUrl?: string | null;
+	structuredLocation?: StructuredInventoryLocation | null;
 	note: string;
 }
 

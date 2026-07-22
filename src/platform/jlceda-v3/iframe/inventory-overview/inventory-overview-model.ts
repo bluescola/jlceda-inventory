@@ -5,6 +5,7 @@ import type {
 } from '../../presentation/iframe-inventory-overview-protocol';
 import type { InventoryOverviewViewState } from '../../presentation/inventory-overview-panel';
 import { searchInventory } from '../../../../features/inventory-search/application/search-inventory';
+import { formatStructuredLocation } from '../../../../features/inventory/domain/inventory-metadata';
 
 export const DEFAULT_INVENTORY_OVERVIEW_VIEW_STATE: InventoryOverviewViewState = {
 	query: '',
@@ -12,6 +13,8 @@ export const DEFAULT_INVENTORY_OVERVIEW_VIEW_STATE: InventoryOverviewViewState =
 	categoryId: 'all',
 	stockFilter: 'all',
 	modelFilter: 'all',
+	replenishmentFilter: 'all',
+	favoriteFilter: 'all',
 	sort: 'relevance',
 	page: 1,
 	pageSize: 50,
@@ -32,6 +35,146 @@ export interface InventoryOverviewScrollPosition {
 export interface InventoryOverviewScrollContainer {
 	scrollLeft: number;
 	scrollTop: number;
+}
+
+export interface InventoryOverviewFocusTarget {
+	classList: {
+		add: (...tokens: string[]) => void;
+		remove: (...tokens: string[]) => void;
+	};
+	setAttribute: (name: string, value: string) => void;
+	removeAttribute: (name: string) => void;
+	scrollIntoView: (options?: ScrollIntoViewOptions) => void;
+}
+
+export type InventoryOverviewFocusScheduler = (callback: () => void, delay: number) => unknown;
+
+export const INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY = 'jlceda-inventory.overview-columns.v1';
+export const INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS = [
+	'number',
+	'package',
+	'category',
+	'quantity',
+	'minimum-quantity',
+	'replenishment',
+	'location',
+	'model',
+	'updated',
+] as const;
+
+export type InventoryOverviewConfigurableColumn = typeof INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS[number];
+
+export interface InventoryOverviewColumnPreferences {
+	version: 1;
+	visibleColumns: InventoryOverviewConfigurableColumn[];
+}
+
+export interface InventoryOverviewColumnPreferenceStorage {
+	getItem: (key: string) => string | null;
+	setItem: (key: string, value: string) => void;
+}
+
+export function inventoryOverviewLocationLabel(
+	item: Pick<InventoryOverviewItemSnapshot, 'location' | 'structuredLocation'>,
+): string {
+	const structured = formatStructuredLocation(item.structuredLocation);
+	if (structured && item.location) {
+		return `${structured}\n${item.location}`;
+	}
+	return structured ?? item.location;
+}
+
+const STOCK_INFORMATION_COLUMNS = new Set<InventoryOverviewConfigurableColumn>([
+	'quantity',
+	'minimum-quantity',
+	'replenishment',
+]);
+
+export function defaultInventoryOverviewColumnPreferences(): InventoryOverviewColumnPreferences {
+	return { version: 1, visibleColumns: [...INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS] };
+}
+
+export function parseInventoryOverviewColumnPreferences(value: string | null | undefined): InventoryOverviewColumnPreferences {
+	if (!value) {
+		return defaultInventoryOverviewColumnPreferences();
+	}
+	try {
+		const parsed: unknown = JSON.parse(value);
+		if (!isRecord(parsed) || parsed.version !== 1 || !Array.isArray(parsed.visibleColumns)) {
+			return defaultInventoryOverviewColumnPreferences();
+		}
+		const whitelist = new Set<InventoryOverviewConfigurableColumn>(INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS);
+		const visibleColumns = [...new Set(parsed.visibleColumns.filter(
+			(column): column is InventoryOverviewConfigurableColumn => typeof column === 'string' && whitelist.has(column as InventoryOverviewConfigurableColumn),
+		))];
+		if (!hasStockInformationColumn(visibleColumns)) {
+			return defaultInventoryOverviewColumnPreferences();
+		}
+		return { version: 1, visibleColumns };
+	}
+	catch {
+		return defaultInventoryOverviewColumnPreferences();
+	}
+}
+
+export function loadInventoryOverviewColumnPreferences(
+	storage: InventoryOverviewColumnPreferenceStorage | undefined,
+): InventoryOverviewColumnPreferences {
+	try {
+		return parseInventoryOverviewColumnPreferences(storage?.getItem(INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY));
+	}
+	catch {
+		return defaultInventoryOverviewColumnPreferences();
+	}
+}
+
+export function saveInventoryOverviewColumnPreferences(
+	storage: InventoryOverviewColumnPreferenceStorage | undefined,
+	preferences: InventoryOverviewColumnPreferences,
+): boolean {
+	try {
+		storage?.setItem(INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY, JSON.stringify(preferences));
+		return storage !== undefined;
+	}
+	catch {
+		return false;
+	}
+}
+
+export function setInventoryOverviewColumnVisibility(
+	preferences: InventoryOverviewColumnPreferences,
+	column: InventoryOverviewConfigurableColumn,
+	visible: boolean,
+): InventoryOverviewColumnPreferences {
+	const selected = new Set(preferences.visibleColumns);
+	if (visible) {
+		selected.add(column);
+	}
+	else {
+		selected.delete(column);
+	}
+	const visibleColumns = INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS.filter(candidate => selected.has(candidate));
+	return hasStockInformationColumn(visibleColumns)
+		? { version: 1, visibleColumns }
+		: { version: 1, visibleColumns: [...preferences.visibleColumns] };
+}
+
+export function canHideInventoryOverviewColumn(
+	preferences: InventoryOverviewColumnPreferences,
+	column: InventoryOverviewConfigurableColumn,
+): boolean {
+	if (!STOCK_INFORMATION_COLUMNS.has(column) || !preferences.visibleColumns.includes(column)) {
+		return true;
+	}
+	return preferences.visibleColumns.filter(candidate => STOCK_INFORMATION_COLUMNS.has(candidate)).length > 1;
+}
+
+function hasStockInformationColumn(columns: readonly InventoryOverviewConfigurableColumn[]): boolean {
+	return columns.some(column => STOCK_INFORMATION_COLUMNS.has(column));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 export type InventoryOverviewCategoryTarget
@@ -55,12 +198,39 @@ export function restoreInventoryOverviewScroll(
 	container.scrollTop = position.top;
 }
 
+export function inventoryOverviewFocusPage(
+	items: readonly Pick<InventoryOverviewItemSnapshot, 'id'>[],
+	focusItemId: string | undefined,
+	pageSize: number,
+): number | undefined {
+	if (!focusItemId) {
+		return undefined;
+	}
+	const index = items.findIndex(item => item.id === focusItemId);
+	return index < 0 ? undefined : Math.floor(index / pageSize) + 1;
+}
+
+export function revealInventoryOverviewFocus(
+	target: InventoryOverviewFocusTarget,
+	schedule: InventoryOverviewFocusScheduler,
+	duration = 2_600,
+): void {
+	target.classList.add('inventory-row-focused');
+	target.setAttribute('aria-current', 'true');
+	target.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'nearest' });
+	schedule(() => {
+		target.classList.remove('inventory-row-focused');
+		target.removeAttribute('aria-current');
+	}, duration);
+}
+
 export function shouldAutoHideInventoryOverview(
 	autoHideArmed: boolean,
 	operationPending: boolean,
 	documentVisible: boolean,
+	edaWindowFocused: boolean,
 ): boolean {
-	return autoHideArmed && !operationPending && documentVisible;
+	return autoHideArmed && !operationPending && documentVisible && edaWindowFocused;
 }
 
 export function shouldSuppressAutoHideForWindowControl(
@@ -162,6 +332,8 @@ export function normalizeOverviewViewState(
 	categories: readonly InventoryOverviewCategorySnapshot[],
 ): InventoryOverviewViewState {
 	const state = value ? { ...value } : { ...DEFAULT_INVENTORY_OVERVIEW_VIEW_STATE };
+	state.replenishmentFilter ??= 'all';
+	state.favoriteFilter ??= 'all';
 	if (state.categoryId !== 'all'
 		&& state.categoryId !== 'unclassified'
 		&& !categories.some(category => category.id === state.categoryId)) {
@@ -193,6 +365,8 @@ export function filterAndSortInventory(
 	const searchAcrossAllCategories = state.query.trim().length > 0 && state.searchScope === 'all';
 	const candidates = items.filter(item => (searchAcrossAllCategories || matchesCategory(item, state.categoryId, categoryIds, knownCategoryIds))
 		&& (state.stockFilter === 'all' || item.state === state.stockFilter)
+		&& matchesReplenishmentFilter(item, state.replenishmentFilter ?? 'all')
+		&& ((state.favoriteFilter ?? 'all') === 'all' || item.favorite)
 		&& (state.modelFilter === 'all' || item.edaModelStatus === state.modelFilter));
 	const candidatesById = new Map(candidates.map(item => [item.id, item]));
 	const searched = searchInventory(candidates.map(toSearchInventoryItem), state.query)
@@ -206,6 +380,21 @@ export function filterAndSortInventory(
 	}
 	const categoryRanks = inventoryCategoryRanks(categories);
 	return searched.sort((left, right) => compareItems(left, right, state, categoryRanks));
+}
+
+export function matchesReplenishmentFilter(
+	item: Pick<InventoryOverviewItemSnapshot, 'replenishmentStatus'>,
+	filter: NonNullable<InventoryOverviewViewState['replenishmentFilter']>,
+): boolean {
+	if (filter === 'all') {
+		return true;
+	}
+	if (filter === 'stocktake-required') {
+		return item.replenishmentStatus === 'needs-count';
+	}
+	return item.replenishmentStatus === 'depleted'
+		|| item.replenishmentStatus === 'low'
+		|| item.replenishmentStatus === 'possibly-low';
 }
 
 export function paginateInventory(
@@ -440,6 +629,8 @@ function toSearchInventoryItem(item: InventoryOverviewItemSnapshot): InventoryIt
 		precision: item.precision,
 		state: item.state,
 		location: item.location || undefined,
+		datasheetUrl: item.datasheetUrl || undefined,
+		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : undefined,
 		source: 'manual',
 		createdAt: item.updatedAt,
 		updatedAt: item.updatedAt,

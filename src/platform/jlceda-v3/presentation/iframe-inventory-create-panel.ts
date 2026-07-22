@@ -17,6 +17,7 @@ import type {
 } from './inventory-create-panel';
 import type { DiagnosticTrace } from './native-diagnostics';
 import { normalizeInventoryText, normalizeLcscPartNumber } from '../../../features/inventory/domain/inventory-item';
+import { normalizeDatasheetUrl, normalizeStructuredLocation } from '../../../features/inventory/domain/inventory-metadata';
 import {
 	defaultInventoryCreateFormState,
 	INVENTORY_CREATE_EVENT_KEY,
@@ -71,7 +72,9 @@ export class InventoryCreateValidationError extends TypeError {
 export type InventoryCreateValidationCode
 	= | 'lcsc-invalid'
 		| 'lcsc-required'
+		| 'datasheet-invalid'
 		| 'name-required'
+		| 'minimum-quantity-invalid'
 		| 'quantity-integer'
 		| 'quantity-negative'
 		| 'quantity-required'
@@ -80,6 +83,8 @@ export type InventoryCreateValidationCode
 type PanelResult
 	= InventoryCreatePanelOutcome
 		| { status: 'failed'; error: unknown; ready: boolean };
+
+type TerminalInventoryCreateAction = Extract<InventoryCreatePanelAction, { type: 'confirm-merge' | 'save' }>;
 
 export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 	private queue: Promise<void> = Promise.resolve();
@@ -110,11 +115,14 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 	): Promise<InventoryCreatePanelOutcome> {
 		const timerId = `${INVENTORY_CREATE_IFRAME_ID}.${request.requestId}`;
 		const processedOperationIds = new Set<string>();
-		const pendingTerminalActions = new Map<string, Extract<InventoryCreatePanelAction, { type: 'confirm-merge' | 'save' }>>();
+		const pendingTerminalActions = new Map<string, TerminalInventoryCreateAction>();
 		let opened = false;
 		let pollStarted = false;
 		let ready = false;
 		let settled = false;
+		let nativeCloseRequested = false;
+		let activeActionPromise: Promise<void> | undefined;
+		let successfulTerminalAction: TerminalInventoryCreateAction | undefined;
 		let readyDeadline: number | undefined;
 		let resolveResult: (result: PanelResult) => void = () => undefined;
 		const resultPromise = new Promise<PanelResult>((resolve) => {
@@ -125,6 +133,17 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 				}
 			};
 		});
+		const resolveNativeClose = (): void => {
+			if (successfulTerminalAction) {
+				resolveResult({
+					status: 'saved',
+					draft: successfulTerminalAction.draft,
+					merged: successfulTerminalAction.type === 'confirm-merge',
+				});
+				return;
+			}
+			resolveResult({ status: 'cancelled' });
+		};
 		const processAction = async (
 			operationId: string,
 			actionType: InventoryCreateOperationType,
@@ -138,10 +157,12 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 				action = createPanelAction(operationId, actionType, form, request.mode, duplicateToken, modelToken, existing);
 			}
 			catch (error) {
-				await this.writeResponse(request.requestId, operationId, actionType, {
-					stage: 'failed',
-					message: validationMessage(error, request.labels),
-				}, trace);
+				if (!settled && !nativeCloseRequested) {
+					await this.writeResponse(request.requestId, operationId, actionType, {
+						stage: 'failed',
+						message: validationMessage(error, request.labels),
+					}, trace);
+				}
 				return;
 			}
 			trace?.info('inventory-create-panel.action.started', { action: action.type });
@@ -153,15 +174,27 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 				trace?.error('inventory-create-panel.action.failed', { action: action.type, errorName: errorName(error) });
 				outcome = { stage: 'failed', message: request.labels.operationError };
 			}
-			if (settled) {
+			trace?.info('inventory-create-panel.action.completed', { action: action.type, stage: outcome.stage });
+			if (outcome.stage === 'succeeded' && (action.type === 'save' || action.type === 'confirm-merge')) {
+				successfulTerminalAction = action;
+			}
+			if (settled || nativeCloseRequested) {
 				return;
 			}
 			const written = await this.writeResponse(request.requestId, operationId, actionType, outcome, trace);
-			trace?.info('inventory-create-panel.action.completed', { action: action.type, stage: outcome.stage });
-			if (!written || outcome.stage !== 'succeeded' || (action.type !== 'save' && action.type !== 'confirm-merge')) {
+			if (nativeCloseRequested || !written || outcome.stage !== 'succeeded' || (action.type !== 'save' && action.type !== 'confirm-merge')) {
 				return;
 			}
 			pendingTerminalActions.set(operationId, action);
+		};
+		const processNativeClose = (): void => {
+			if (settled || nativeCloseRequested) {
+				return;
+			}
+			nativeCloseRequested = true;
+			if (!activeActionPromise) {
+				resolveNativeClose();
+			}
 		};
 		const readEvent = (): void => {
 			try {
@@ -192,7 +225,7 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 					}
 					return;
 				}
-				if (processedOperationIds.has(event.operationId)) {
+				if (nativeCloseRequested || activeActionPromise || processedOperationIds.has(event.operationId)) {
 					return;
 				}
 				processedOperationIds.add(event.operationId);
@@ -200,13 +233,36 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 					resolveResult({ status: 'cancelled' });
 					return;
 				}
-				void processAction(event.operationId, event.action, event.form, event.duplicateToken, event.modelToken, event.existing);
+				activeActionPromise = processAction(
+					event.operationId,
+					event.action,
+					event.form,
+					event.duplicateToken,
+					event.modelToken,
+					event.existing,
+				).catch((error) => {
+					trace?.error('inventory-create-panel.action.failed', {
+						action: event.action,
+						errorName: errorName(error),
+					});
+					if (!nativeCloseRequested) {
+						resolveResult({ status: 'failed', error, ready });
+					}
+				}).finally(() => {
+					activeActionPromise = undefined;
+					if (nativeCloseRequested) {
+						resolveNativeClose();
+					}
+				});
 			}
 			catch (error) {
 				resolveResult({ status: 'failed', error, ready });
 			}
 		};
 		const poll = (): void => {
+			if (nativeCloseRequested) {
+				return;
+			}
 			readEvent();
 			if (!settled && !ready && readyDeadline !== undefined && Date.now() >= readyDeadline) {
 				resolveResult({ status: 'failed', error: new Error('The inventory create IFrame did not become ready.'), ready: false });
@@ -235,10 +291,7 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 			});
 			opened = await this.host.open({
 				title: request.mode === 'lcsc' ? request.labels.titleLcsc : request.labels.titleCustom,
-				onClose: () => {
-					readEvent();
-					resolveResult({ status: 'cancelled' });
-				},
+				onClose: processNativeClose,
 			});
 			if (!opened) {
 				throw new InventoryCreatePanelUnavailableError('init-failed');
@@ -334,6 +387,8 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 			description: this.t('part.descriptionLabel'),
 			quantityMode: this.t('inventoryCreate.quantityMode'),
 			quantity: this.t('inventory.quantityLabel'),
+			minimumQuantity: this.t('inventoryItem.minimumQuantity'),
+			favorite: this.t('inventoryItem.favorite'),
 			exact: this.t('inventory.exact'),
 			estimated: this.t('inventory.estimated'),
 			unknown: this.t('inventory.unknown'),
@@ -344,6 +399,12 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 			noSecondaryCategory: this.t('inventoryCreate.noSecondaryCategory'),
 			location: this.t('inventory.locationLabel'),
 			chooseLocation: this.t('inventoryItem.chooseLocation'),
+			datasheet: this.t('inventoryItem.datasheet'),
+			structuredLocation: this.t('inventoryItem.structuredLocation'),
+			locationCabinet: this.t('inventoryItem.locationCabinet'),
+			locationBox: this.t('inventoryItem.locationBox'),
+			locationRow: this.t('inventoryItem.locationRow'),
+			locationColumn: this.t('inventoryItem.locationColumn'),
 			note: this.t('inventory.noteLabel'),
 			queryEda: this.t('inventoryCreate.queryEda'),
 			openMarketplace: this.t('marketplace.open'),
@@ -372,6 +433,8 @@ export class IFrameInventoryCreatePanel implements InventoryCreatePanel {
 			quantityInteger: this.t('inventoryItem.quantityInteger'),
 			quantityNonNegative: this.t('inventoryItem.quantityNonNegative'),
 			quantityTooLarge: this.t('inventoryCreate.quantityTooLarge'),
+			minimumQuantityPositive: this.t('inventoryItem.minimumQuantityPositive'),
+			datasheetInvalid: this.t('inventoryItem.datasheetInvalid'),
 			loading: this.t('productForm.loading'),
 			connectionError: this.t('productForm.connectionError'),
 			operationError: this.t('inventoryCreate.operationError'),
@@ -413,8 +476,15 @@ export function normalizeInventoryCreateForm(value: InventoryCreateFormState): I
 		description: normalizeInventoryText(value.description),
 		quantityMode: value.quantityMode,
 		quantity: value.quantity.trim(),
+		minimumQuantity: value.minimumQuantity?.trim() ?? '',
+		favorite: value.favorite === true,
 		categoryId: normalizeInventoryText(value.categoryId),
 		location: normalizeInventoryText(value.location),
+		datasheetUrl: normalizeInventoryText(value.datasheetUrl),
+		locationCabinet: normalizeInventoryText(value.locationCabinet),
+		locationBox: normalizeInventoryText(value.locationBox),
+		locationRow: normalizeInventoryText(value.locationRow),
+		locationColumn: normalizeInventoryText(value.locationColumn),
 		note: normalizeInventoryText(value.note),
 	};
 }
@@ -434,6 +504,20 @@ export function normalizeInventoryCreateDraft(
 		throw new InventoryCreateValidationError('name-required');
 	}
 	const quantity = normalizeQuantity(form);
+	const minimumQuantity = normalizeMinimumQuantity(form.minimumQuantity);
+	let datasheetUrl: string | undefined;
+	try {
+		datasheetUrl = normalizeDatasheetUrl(form.datasheetUrl);
+	}
+	catch {
+		throw new InventoryCreateValidationError('datasheet-invalid');
+	}
+	const structuredLocation = normalizeStructuredLocation({
+		cabinet: form.locationCabinet,
+		box: form.locationBox,
+		row: form.locationRow,
+		column: form.locationColumn,
+	});
 	const depleted = form.quantityMode === 'depleted' || quantity === 0;
 	return {
 		identity: {
@@ -452,8 +536,12 @@ export function normalizeInventoryCreateDraft(
 				? 'estimated'
 				: form.quantityMode === 'unknown' ? 'unknown' : 'exact',
 		state: depleted ? 'depleted' : 'in-stock',
+		minimumQuantity,
+		favorite: form.favorite === true,
 		categoryId: form.categoryId || undefined,
 		location: form.location || undefined,
+		datasheetUrl,
+		structuredLocation,
 		note: form.note || undefined,
 	};
 }
@@ -510,6 +598,17 @@ function normalizeQuantity(form: InventoryCreateFormState): number | null {
 	return quantity;
 }
 
+function normalizeMinimumQuantity(value: string | undefined): number | undefined {
+	const normalized = value?.trim() ?? '';
+	if (!normalized) {
+		return undefined;
+	}
+	if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(Number(normalized)) || Number(normalized) <= 0) {
+		throw new InventoryCreateValidationError('minimum-quantity-invalid');
+	}
+	return Number(normalized);
+}
+
 function normalizeCategories(values: InventoryCreatePanelInput['categories']) {
 	const normalized = values?.map(category => ({
 		...category,
@@ -528,9 +627,11 @@ function validationMessage(error: unknown, labels: InventoryCreateLabels): strin
 		return labels.operationError;
 	}
 	const messages: Record<InventoryCreateValidationCode, string> = {
+		'datasheet-invalid': labels.datasheetInvalid,
 		'lcsc-invalid': labels.lcscInvalid,
 		'lcsc-required': labels.lcscRequired,
 		'name-required': labels.nameRequired,
+		'minimum-quantity-invalid': labels.minimumQuantityPositive,
 		'quantity-integer': labels.quantityInteger,
 		'quantity-negative': labels.quantityNonNegative,
 		'quantity-required': labels.quantityRequired,

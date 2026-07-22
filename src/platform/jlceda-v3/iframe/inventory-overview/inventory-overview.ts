@@ -11,6 +11,12 @@ import type {
 	InventoryOverviewIntent,
 	InventoryOverviewViewState,
 } from '../../presentation/inventory-overview-panel';
+import type {
+	InventoryOverviewColumnPreferences,
+	InventoryOverviewColumnPreferenceStorage,
+	InventoryOverviewConfigurableColumn,
+} from './inventory-overview-model';
+import { normalizeDatasheetUrl, normalizeStructuredLocation } from '../../../../features/inventory/domain/inventory-metadata';
 import {
 	INVENTORY_OVERVIEW_IFRAME_ID,
 	INVENTORY_OVERVIEW_PROTOCOL_VERSION,
@@ -22,13 +28,19 @@ import {
 	parseIFrameInventoryOverviewRequest,
 } from '../../presentation/iframe-inventory-overview-protocol';
 import {
+	canHideInventoryOverviewColumn,
 	captureInventoryOverviewScroll,
+	defaultInventoryOverviewColumnPreferences,
 	filterAndSortInventory,
+	INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS,
 	inventoryCategoryCounts,
 	inventoryItemsForCategoryDrop,
 	inventoryItemsForDrag,
+	inventoryOverviewFocusPage,
 	inventoryOverviewLcscPartNumber,
+	inventoryOverviewLocationLabel,
 	inventoryOverviewPackageLabel,
+	loadInventoryOverviewColumnPreferences,
 	normalizeOverviewViewState,
 	orderedCategorySiblings,
 	paginateInventory,
@@ -36,7 +48,10 @@ import {
 	reorderCategorySiblingsByDrop,
 	resolveBulkCategoryTarget,
 	restoreInventoryOverviewScroll,
+	revealInventoryOverviewFocus,
+	saveInventoryOverviewColumnPreferences,
 	selectInventoryOverviewCategory,
+	setInventoryOverviewColumnVisibility,
 	shouldAutoHideInventoryOverview,
 	shouldClearAppliedSearch,
 	shouldSuppressAutoHideForWindowControl,
@@ -53,9 +68,16 @@ interface PanelElements {
 	searchScope: HTMLSelectElement;
 	clearSearch: HTMLButtonElement;
 	stockFilter: HTMLSelectElement;
+	replenishmentFilter: HTMLSelectElement;
+	favoriteFilter: HTMLSelectElement;
 	modelFilter: HTMLSelectElement;
 	sort: HTMLSelectElement;
 	clearFilters: HTMLButtonElement;
+	columnSettings: HTMLButtonElement;
+	columnSettingsMenu: HTMLElement;
+	columnSettingsOptions: HTMLElement;
+	restoreDefaultColumns: HTMLButtonElement;
+	exportReplenishment: HTMLButtonElement;
 	refresh: HTMLButtonElement;
 	openCategories: HTMLButtonElement;
 	closeCategories: HTMLButtonElement;
@@ -89,7 +111,9 @@ interface PanelElements {
 	bulkRootCategory: HTMLSelectElement;
 	bulkChildCategory: HTMLSelectElement;
 	applyMove: HTMLButtonElement;
+	deleteSelected: HTMLButtonElement;
 	selectPage: HTMLInputElement;
+	table: HTMLTableElement;
 	rows: HTMLTableSectionElement;
 	emptyResults: HTMLElement;
 	pageSize: HTMLSelectElement;
@@ -195,6 +219,7 @@ function renderPanel(
 ): void {
 	const labels = request.labels;
 	let state = normalizeOverviewViewState(request.initialState, request.categories);
+	let pendingFocusItemId = state.focusItemId;
 	let draftQuery = state.query;
 	let selectedIds = new Set<string>();
 	let selectedRootId: string | undefined;
@@ -202,13 +227,21 @@ function renderPanel(
 	let categoryEdit: CategoryEditState | undefined;
 	const expandedRootIds = new Set<string>();
 	const itemDrag: InventoryItemDragState = {};
+	const columnPreferenceStorage = browserColumnPreferenceStorage();
+	let columnPreferences = loadInventoryOverviewColumnPreferences(columnPreferenceStorage);
 	let pendingOperation: PendingOperation | undefined;
 	let autoHideArmed = false;
+	let edaWindowFocused = false;
 	const ignoredOperationIds = new Set<string>();
 	let render = (_preserveTableScroll?: boolean): void => undefined;
 
 	localizeStaticElements(elements, labels);
 	populateSelects(elements, labels, state);
+	initializeColumnSettings(elements, labels, () => columnPreferences, (preferences) => {
+		columnPreferences = preferences;
+		saveInventoryOverviewColumnPreferences(columnPreferenceStorage, preferences);
+		applyInventoryOverviewColumnPreferences(elements, preferences);
+	});
 	elements.searchInput.value = draftQuery;
 
 	const viewState = (): InventoryOverviewViewState => ({ ...state });
@@ -281,7 +314,10 @@ function renderPanel(
 			if (item) {
 				const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 				showOperationDialog(labels.viewItem, '');
-				showItemDetails(elements.operationMessage, item, request.categories, labels);
+				showItemDetails(elements.operationMessage, item, request.categories, labels, () => requestIntent({
+					type: 'open-datasheet',
+					item: { id: item.id, expectedRevision: item.revision },
+				}));
 				elements.operationCancel.hidden = false;
 				elements.operationRetry.hidden = true;
 				elements.operationConfirm.hidden = false;
@@ -309,6 +345,10 @@ function renderPanel(
 		if (action.type === 'delete-item') {
 			const item = request.items.find(candidate => candidate.id === action.item.id);
 			confirmIntent(action, item ? deleteItemMessage(item, labels) : labels.deleteItem);
+			return;
+		}
+		if (action.type === 'delete-items') {
+			confirmIntent(action, formatLabel(labels.confirmDeleteSelected, { count: action.items.length }));
 			return;
 		}
 		if (action.type === 'delete-category') {
@@ -358,7 +398,8 @@ function renderPanel(
 		const filtered = filterAndSortInventory(request.items, request.categories, state);
 		const filteredIds = new Set(filtered.map(item => item.id));
 		selectedIds = new Set(Array.from(selectedIds).filter(id => filteredIds.has(id)));
-		const page = paginateInventory(filtered, state.page, state.pageSize);
+		const focusPage = inventoryOverviewFocusPage(filtered, pendingFocusItemId, state.pageSize);
+		const page = paginateInventory(filtered, focusPage ?? state.page, state.pageSize);
 		if (page.page !== state.page) {
 			state = { ...state, page: page.page };
 		}
@@ -415,6 +456,7 @@ function renderPanel(
 			},
 		});
 		renderRows(elements, request, page.items, selectedIds, labels, itemDrag, openCategoryDrawer, closeCategoryDrawer, requestIntent, render);
+		applyInventoryOverviewColumnPreferences(elements, columnPreferences);
 		renderBulkToolbar(elements, request.categories, filtered, selectedIds, labels, requestIntent, render);
 		elements.resultSummary.textContent = formatLabel(labels.filteredCount, {
 			count: page.total,
@@ -429,10 +471,25 @@ function renderPanel(
 		elements.lastPage.disabled = page.page >= page.pageCount;
 		elements.pageSize.value = String(state.pageSize);
 		elements.stockFilter.value = state.stockFilter;
+		elements.replenishmentFilter.value = state.replenishmentFilter ?? 'all';
+		elements.favoriteFilter.value = state.favoriteFilter ?? 'all';
 		elements.modelFilter.value = state.modelFilter;
 		elements.sort.value = state.sort;
 		elements.searchScope.value = state.searchScope;
 		restoreInventoryOverviewScroll(tableScroll, scrollPosition);
+		if (pendingFocusItemId) {
+			const focusItemId = pendingFocusItemId;
+			pendingFocusItemId = undefined;
+			delete state.focusItemId;
+			const focusRow = Array.from(elements.rows.rows)
+				.find(row => row.dataset.inventoryItemId === focusItemId);
+			if (focusRow) {
+				revealInventoryOverviewFocus(
+					focusRow,
+					(callback, delay) => window.setTimeout(callback, delay),
+				);
+			}
+		}
 	};
 
 	elements.searchForm.addEventListener('submit', (event) => {
@@ -456,6 +513,8 @@ function renderPanel(
 		elements.searchInput.focus();
 	});
 	elements.stockFilter.addEventListener('change', () => updateState({ stockFilter: elements.stockFilter.value as InventoryOverviewViewState['stockFilter'] }));
+	elements.replenishmentFilter.addEventListener('change', () => updateState({ replenishmentFilter: elements.replenishmentFilter.value as NonNullable<InventoryOverviewViewState['replenishmentFilter']> }));
+	elements.favoriteFilter.addEventListener('change', () => updateState({ favoriteFilter: elements.favoriteFilter.value as NonNullable<InventoryOverviewViewState['favoriteFilter']> }));
 	elements.modelFilter.addEventListener('change', () => updateState({ modelFilter: elements.modelFilter.value as InventoryOverviewViewState['modelFilter'] }));
 	const applySort = (): void => {
 		const sort = elements.sort.value as InventoryOverviewViewState['sort'];
@@ -474,10 +533,13 @@ function renderPanel(
 			searchScope: 'all',
 			categoryId: 'all',
 			stockFilter: 'all',
+			replenishmentFilter: 'all',
+			favoriteFilter: 'all',
 			modelFilter: 'all',
 			sort: 'relevance',
 		});
 	});
+	elements.exportReplenishment.addEventListener('click', () => requestIntent({ type: 'export-replenishment' }));
 	elements.refresh.addEventListener('click', () => requestIntent({ type: 'refresh' }));
 	elements.firstPage.addEventListener('click', () => updateState({ page: 1 }, false));
 	elements.previousPage.addEventListener('click', () => updateState({ page: Math.max(1, state.page - 1) }, false));
@@ -509,6 +571,15 @@ function renderPanel(
 	elements.categoryManagerClose.addEventListener('click', closeCategoryManager);
 	elements.categoryManagerCloseIcon.addEventListener('click', closeCategoryManager);
 	elements.categoryManagerBackdrop.addEventListener('click', event => event.target === elements.categoryManagerBackdrop ? closeCategoryManager() : undefined);
+	eda.sys_Window.addEventListener('focus' as ESYS_WindowEventType, () => {
+		edaWindowFocused = true;
+	});
+	eda.sys_Window.addEventListener('blur' as ESYS_WindowEventType, () => {
+		edaWindowFocused = false;
+	});
+	window.addEventListener('focus', () => {
+		edaWindowFocused = false;
+	});
 	window.addEventListener('blur', () => {
 		const operationWasPending = Boolean(pendingOperation);
 		window.setTimeout(() => {
@@ -519,6 +590,7 @@ function renderPanel(
 					autoHideArmed,
 					operationWasPending || Boolean(pendingOperation),
 					document.visibilityState === 'visible',
+					edaWindowFocused,
 				)) {
 				return;
 			}
@@ -629,6 +701,13 @@ function renderPanel(
 					dispatchIntent({ type: 'retry-model', item: retryItem });
 				};
 			}
+			return;
+		}
+		if (active.intent.type === 'export-replenishment' && 'message' in result && result.message) {
+			showOperationDialog(actionTitle(active.intent, labels), result.message);
+			elements.operationCancel.hidden = false;
+			elements.operationConfirm.hidden = true;
+			elements.operationRetry.hidden = true;
 			return;
 		}
 		closeOperationDialog(false);
@@ -1109,6 +1188,7 @@ function renderRows(
 	const categories = new Map(request.categories.map(category => [category.id, category.name]));
 	const rows = items.map((item) => {
 		const row = document.createElement('tr');
+		row.dataset.inventoryItemId = item.id;
 		const selectCell = document.createElement('td');
 		selectCell.className = 'select-column';
 		const checkbox = document.createElement('input');
@@ -1235,17 +1315,28 @@ function renderRows(
 			type: 'view-item',
 			item: { id: item.id, expectedRevision: item.revision },
 		}));
-		nameCell.append(dragHandle, nameButton);
+		nameCell.append(dragHandle);
+		if (item.favorite) {
+			const favorite = document.createElement('span');
+			favorite.className = 'favorite-indicator';
+			favorite.textContent = '\u2605';
+			favorite.title = labels.favorite;
+			favorite.setAttribute('aria-label', labels.favorite);
+			nameCell.append(favorite);
+		}
+		nameCell.append(nameButton);
 		row.append(
 			selectCell,
 			nameCell,
-			textCell(item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId, labels.emptyValue),
-			textCell(inventoryOverviewPackageLabel(item), labels.emptyValue),
-			textCell(categories.get(item.categoryId ?? '') ?? labels.unclassified),
-			statusCell(quantityLabel(item, labels), `stock-${item.state}`),
-			textCell(item.location, labels.emptyValue),
-			statusCell(modelLabel(item, labels), `model-${item.edaModelStatus}`),
-			textCell(item.updatedAtLabel, labels.emptyValue),
+			textCell(item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId, labels.emptyValue, 'number'),
+			textCell(inventoryOverviewPackageLabel(item), labels.emptyValue, 'package'),
+			textCell(categories.get(item.categoryId ?? '') ?? labels.unclassified, undefined, 'category'),
+			statusCell(quantityLabel(item, labels), `stock-${item.state}`, 'quantity'),
+			textCell(item.minimumQuantity === undefined ? '' : String(item.minimumQuantity), labels.emptyValue, 'minimum-quantity'),
+			statusCell(replenishmentLabel(item, labels), `replenishment-${item.replenishmentStatus}`, 'replenishment'),
+			textCell(inventoryOverviewLocationLabel(item), labels.emptyValue, 'location'),
+			statusCell(modelLabel(item, labels), `model-${item.edaModelStatus}`, 'model'),
+			textCell(item.updatedAtLabel, labels.emptyValue, 'updated'),
 			actionCell(item, labels, finishIntent),
 		);
 		return row;
@@ -1290,8 +1381,9 @@ function createInventoryItemDragPreview(
 		dragPreviewRow(labels.columnQuantity, quantityLabel(item, labels)),
 		dragPreviewRow(labels.columnCategory, categoryName),
 	);
-	if (item.location) {
-		preview.append(dragPreviewRow(labels.columnLocation, item.location));
+	const location = inventoryOverviewLocationLabel(item);
+	if (location) {
+		preview.append(dragPreviewRow(labels.columnLocation, location.replace('\n', ' / ')));
 	}
 	return preview;
 }
@@ -1392,6 +1484,7 @@ function renderBulkToolbar(
 	elements.bulkRootCategory.disabled = selectedIds.size === 0;
 	elements.bulkChildCategory.disabled = selectedIds.size === 0;
 	elements.applyMove.disabled = selectedIds.size === 0;
+	elements.deleteSelected.disabled = selectedIds.size === 0;
 	elements.applyMove.onclick = () => {
 		const selectedItems = items
 			.filter(item => selectedIds.has(item.id))
@@ -1412,6 +1505,15 @@ function renderBulkToolbar(
 			items: selectedItems,
 			categoryId: category.categoryId,
 		});
+	};
+	elements.deleteSelected.onclick = () => {
+		const selectedItems = items
+			.filter(item => selectedIds.has(item.id))
+			.map(item => ({ id: item.id, expectedRevision: item.revision }));
+		if (selectedItems.length === 0) {
+			return;
+		}
+		finishIntent({ type: 'delete-items', items: selectedItems, confirmed: true });
 	};
 	const selectedRoot = elements.bulkRootCategory.value;
 	const selectedChild = elements.bulkChildCategory.value;
@@ -1449,6 +1551,12 @@ function actionCell(
 		rowAction(labels.viewItem, () => finishIntent({ type: 'view-item', item: { id: item.id, expectedRevision: item.revision } })),
 		rowAction(labels.editItem, () => finishIntent({ type: 'edit-item', item: { id: item.id, expectedRevision: item.revision } })),
 	);
+	if (item.datasheetUrl) {
+		actions.append(rowIconAction(labels.openDatasheet, '\u2197', () => finishIntent({
+			type: 'open-datasheet',
+			item: { id: item.id, expectedRevision: item.revision },
+		})));
+	}
 	if (item.lcscPartNumber) {
 		actions.append(rowAction(labels.openMarketplace, () => finishIntent({ type: 'open-marketplace', item: { id: item.id, expectedRevision: item.revision } })));
 		if (!item.hasEdaModel) {
@@ -1467,6 +1575,137 @@ function actionCell(
 	return cell;
 }
 
+function initializeColumnSettings(
+	elements: PanelElements,
+	labels: InventoryOverviewLabels,
+	preferences: () => InventoryOverviewColumnPreferences,
+	onChange: (value: InventoryOverviewColumnPreferences) => void,
+): void {
+	const columnLabels: Record<InventoryOverviewConfigurableColumn, string> = {
+		'number': labels.columnPartIdentifier,
+		'package': labels.package,
+		'category': labels.columnCategory,
+		'quantity': labels.columnQuantity,
+		'minimum-quantity': labels.columnMinimumQuantity,
+		'replenishment': labels.columnReplenishment,
+		'location': labels.columnLocation,
+		'model': labels.columnModel,
+		'updated': labels.columnUpdatedAt,
+	};
+	const closeMenu = (restoreFocus = false): void => {
+		elements.columnSettingsMenu.hidden = true;
+		elements.columnSettings.setAttribute('aria-expanded', 'false');
+		if (restoreFocus) {
+			elements.columnSettings.focus();
+		}
+	};
+	const renderOptions = (): void => {
+		const current = preferences();
+		const visible = new Set(current.visibleColumns);
+		const options = INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS.map((column) => {
+			const label = document.createElement('label');
+			label.className = 'column-settings-option';
+			const input = document.createElement('input');
+			input.type = 'checkbox';
+			input.checked = visible.has(column);
+			input.disabled = input.checked && !canHideInventoryOverviewColumn(current, column);
+			input.setAttribute('aria-label', columnLabels[column]);
+			input.addEventListener('change', () => {
+				onChange(setInventoryOverviewColumnVisibility(preferences(), column, input.checked));
+				renderOptions();
+			});
+			const text = document.createElement('span');
+			text.textContent = columnLabels[column];
+			label.append(input, text);
+			return label;
+		});
+		elements.columnSettingsOptions.replaceChildren(...options);
+	};
+	elements.columnSettings.addEventListener('click', () => {
+		const opening = elements.columnSettingsMenu.hidden;
+		if (opening) {
+			renderOptions();
+		}
+		elements.columnSettingsMenu.hidden = !opening;
+		elements.columnSettings.setAttribute('aria-expanded', String(opening));
+		if (opening) {
+			positionColumnSettingsMenu(elements);
+			elements.columnSettingsOptions.querySelector<HTMLInputElement>('input')?.focus();
+		}
+	});
+	elements.restoreDefaultColumns.addEventListener('click', () => {
+		onChange(defaultInventoryOverviewColumnPreferences());
+		renderOptions();
+	});
+	document.addEventListener('pointerdown', (event) => {
+		const target = event.target;
+		if (!(target instanceof Node)
+			|| elements.columnSettingsMenu.hidden
+			|| elements.columnSettings === target
+			|| elements.columnSettings.contains(target)
+			|| elements.columnSettingsMenu.contains(target)) {
+			return;
+		}
+		closeMenu();
+	});
+	document.addEventListener('keydown', (event) => {
+		if (event.key === 'Escape' && !elements.columnSettingsMenu.hidden) {
+			closeMenu(true);
+		}
+	});
+	window.addEventListener('resize', () => closeMenu());
+	renderOptions();
+}
+
+function positionColumnSettingsMenu(elements: PanelElements): void {
+	const trigger = elements.columnSettings.getBoundingClientRect();
+	const menu = elements.columnSettingsMenu.getBoundingClientRect();
+	const viewportPadding = 10;
+	const left = Math.max(
+		viewportPadding,
+		Math.min(trigger.right - menu.width, window.innerWidth - menu.width - viewportPadding),
+	);
+	const top = Math.max(
+		viewportPadding,
+		Math.min(trigger.bottom + 6, window.innerHeight - menu.height - viewportPadding),
+	);
+	elements.columnSettingsMenu.style.left = `${left}px`;
+	elements.columnSettingsMenu.style.top = `${top}px`;
+}
+
+function applyInventoryOverviewColumnPreferences(
+	elements: PanelElements,
+	preferences: InventoryOverviewColumnPreferences,
+): void {
+	const visible = new Set(preferences.visibleColumns);
+	for (const cell of Array.from(elements.table.querySelectorAll<HTMLElement>('[data-inventory-column]'))) {
+		const column = cell.dataset.inventoryColumn as InventoryOverviewConfigurableColumn | undefined;
+		cell.hidden = column !== undefined && !visible.has(column);
+	}
+	const columnWidths: Record<InventoryOverviewConfigurableColumn, number> = {
+		'number': 135,
+		'package': 105,
+		'category': 105,
+		'quantity': 85,
+		'minimum-quantity': 100,
+		'replenishment': 120,
+		'location': 115,
+		'model': 100,
+		'updated': 145,
+	};
+	const optionalWidth = preferences.visibleColumns.reduce((sum, column) => sum + columnWidths[column], 0);
+	elements.table.style.setProperty('--inventory-table-min-width', `${Math.max(720, 430 + optionalWidth)}px`);
+}
+
+function browserColumnPreferenceStorage(): InventoryOverviewColumnPreferenceStorage | undefined {
+	try {
+		return window.localStorage;
+	}
+	catch {
+		return undefined;
+	}
+}
+
 function localizeStaticElements(elements: PanelElements, labels: InventoryOverviewLabels): void {
 	setText('search-label', labels.searchLabel);
 	elements.searchInput.placeholder = labels.searchPlaceholder;
@@ -1481,9 +1720,17 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	elements.closeCategories.setAttribute('aria-label', labels.closeCategories);
 	elements.categoryOverlay.setAttribute('aria-label', labels.closeCategories);
 	setText('stock-filter-label', labels.stockFilter);
+	setText('replenishment-filter-label', labels.replenishmentFilter);
+	setText('favorite-filter-label', labels.favoriteFilter);
 	setText('model-filter-label', labels.modelFilter);
 	setText('sort-label', labels.sortLabel);
+	elements.columnSettings.title = labels.columnSettings;
+	elements.columnSettings.setAttribute('aria-label', labels.columnSettings);
+	elements.columnSettingsMenu.setAttribute('aria-labelledby', 'column-settings-title');
+	setText('column-settings-title', labels.columnSettings);
+	elements.restoreDefaultColumns.textContent = labels.restoreDefaultColumns;
 	elements.clearFilters.textContent = labels.clearFilters;
+	elements.exportReplenishment.textContent = labels.exportReplenishment;
 	elements.refresh.textContent = labels.refresh;
 	setText('category-heading-label', labels.title);
 	elements.toggleCategoryManagement.textContent = labels.manageCategories;
@@ -1501,6 +1748,7 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	setText('bulk-root-category-label', labels.primaryCategory);
 	setText('bulk-child-category-label', labels.secondaryCategory);
 	elements.applyMove.textContent = labels.applyMove;
+	elements.deleteSelected.textContent = labels.deleteSelected;
 	elements.selectFiltered.textContent = labels.selectAllFiltered;
 	elements.clearSelection.textContent = labels.clearSelection;
 	elements.selectPage.setAttribute('aria-label', labels.selectAll);
@@ -1509,6 +1757,8 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	setText('column-package', labels.package);
 	setText('column-category', labels.columnCategory);
 	setText('column-quantity', labels.columnQuantity);
+	setText('column-minimum-quantity', labels.columnMinimumQuantity);
+	setText('column-replenishment', labels.columnReplenishment);
 	setText('column-location', labels.columnLocation);
 	setText('column-model', labels.columnModel);
 	setText('column-updated', labels.columnUpdatedAt);
@@ -1539,6 +1789,15 @@ function populateSelects(elements: PanelElements, labels: InventoryOverviewLabel
 		['all', labels.stockAll],
 		['in-stock', labels.stockInStock],
 		['depleted', labels.stockDepleted],
+	]);
+	fillOptions(elements.replenishmentFilter, [
+		['all', labels.replenishmentAll],
+		['needs-replenishment', labels.replenishmentNeedsReplenishment],
+		['stocktake-required', labels.replenishmentStocktakeRequired],
+	]);
+	fillOptions(elements.favoriteFilter, [
+		['all', labels.favoriteAll],
+		['favorites', labels.favoriteOnly],
 	]);
 	fillOptions(elements.modelFilter, [
 		['all', labels.modelAll],
@@ -1591,6 +1850,17 @@ function rowAction(label: string, action: () => void, danger = false): HTMLButto
 	return button;
 }
 
+function rowIconAction(label: string, icon: string, action: () => void): HTMLButtonElement {
+	const button = document.createElement('button');
+	button.type = 'button';
+	button.className = 'row-icon-action';
+	button.textContent = icon;
+	button.title = label;
+	button.setAttribute('aria-label', label);
+	button.addEventListener('click', action);
+	return button;
+}
+
 function actionTitle(action: InventoryOverviewAction, labels: InventoryOverviewLabels): string {
 	switch (action.type) {
 		case 'view-item': return labels.viewItem;
@@ -1598,16 +1868,19 @@ function actionTitle(action: InventoryOverviewAction, labels: InventoryOverviewL
 		case 'update-item': return labels.editItem;
 		case 'merge-items': return labels.confirmMerge;
 		case 'open-marketplace': return labels.openMarketplace;
+		case 'open-datasheet': return labels.openDatasheet;
 		case 'retry-model':
 		case 'attach-model': return labels.retryModel;
 		case 'copy-common': return labels.copyCommon;
 		case 'delete-item': return labels.deleteItem;
+		case 'delete-items': return labels.deleteSelected;
 		case 'create-category': return action.parentId ? labels.addChildCategory : labels.addRootCategory;
 		case 'rename-category': return labels.renameCategory;
 		case 'delete-category': return labels.deleteCategory;
 		case 'reorder-categories': return action.parentId ? labels.addChildCategory : labels.manageCategories;
 		case 'import-eda-categories': return labels.importEdaCategories;
 		case 'move-items': return labels.moveToCategory;
+		case 'export-replenishment': return labels.exportReplenishment;
 		case 'refresh': return labels.refresh;
 	}
 }
@@ -1617,6 +1890,7 @@ function showItemDetails(
 	item: InventoryOverviewItemSnapshot,
 	categories: readonly InventoryOverviewCategorySnapshot[],
 	labels: InventoryOverviewLabels,
+	openDatasheet: () => void,
 ): void {
 	const details = document.createElement('dl');
 	details.className = 'overview-details-list';
@@ -1645,6 +1919,15 @@ function showItemDetails(
 			detail.className = 'overview-copy-value';
 			detail.append(code, copy);
 		}
+		else if (key === 'datasheet' && item.datasheetUrl) {
+			const url = document.createElement('span');
+			url.className = 'overview-datasheet-url';
+			url.textContent = value;
+			const open = rowIconAction(labels.openDatasheet, '\u2197', openDatasheet);
+			open.classList.add('overview-datasheet-open');
+			detail.className = 'overview-datasheet-value';
+			detail.append(url, open);
+		}
 		else {
 			detail.textContent = value;
 		}
@@ -1657,7 +1940,7 @@ function inventoryItemDetailRows(
 	item: InventoryOverviewItemSnapshot,
 	categories: readonly InventoryOverviewCategorySnapshot[],
 	labels: InventoryOverviewLabels,
-): Array<[label: string, value: string, key?: 'lcscPartNumber']> {
+): Array<[label: string, value: string, key?: 'datasheet' | 'lcscPartNumber']> {
 	const category = item.categoryId ? categories.find(candidate => candidate.id === item.categoryId) : undefined;
 	const parentCategory = category?.parentId
 		? categories.find(candidate => candidate.id === category.parentId)
@@ -1677,10 +1960,15 @@ function inventoryItemDetailRows(
 		[labels.package, item.package || '\u2014'],
 		[labels.description, item.description || labels.emptyValue],
 		[labels.columnQuantity, quantityLabel(item, labels)],
+		[labels.columnMinimumQuantity, item.minimumQuantity === undefined ? labels.emptyValue : String(item.minimumQuantity)],
+		[labels.columnReplenishment, replenishmentLabel(item, labels)],
 		[labels.precision, precision],
 		[labels.stockState, item.state === 'depleted' ? labels.depleted : labels.inStock],
+		[labels.favorite, item.favorite ? labels.favoriteYes : labels.favoriteNo],
 		[labels.columnCategory, categoryLabel],
 		[labels.columnLocation, item.location || labels.emptyValue],
+		[labels.structuredLocation, inventoryOverviewLocationLabel({ location: '', structuredLocation: item.structuredLocation }) || labels.emptyValue],
+		[labels.datasheet, item.datasheetUrl || labels.emptyValue, 'datasheet'],
 		[labels.note, item.note || labels.emptyValue],
 		[labels.marketplace, marketplaceLabel(item, labels)],
 		[labels.columnModel, modelLabel(item, labels)],
@@ -1773,10 +2061,15 @@ function showOverviewEditor(
 			supplierId: item.supplierId,
 		},
 		location: item.location,
+		datasheetUrl: item.datasheetUrl || null,
+		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : null,
 		note: item.note,
+		minimumQuantity: item.minimumQuantity,
+		favorite: item.favorite,
 		precision: item.precision === 'estimated' ? 'estimated' as const : 'exact' as const,
 		quantity: item.quantity ?? 0,
 	};
+	const structuredLocation = draft.structuredLocation ?? undefined;
 	const form = document.createElement('form');
 	form.className = 'overview-edit-form';
 	const fields = [
@@ -1788,6 +2081,11 @@ function showOverviewEditor(
 		['package', labels.package, draft.identity.package, 500],
 		['description', labels.description, draft.identity.description, 4000],
 		['location', labels.columnLocation, draft.location, 1000],
+		['datasheetUrl', labels.datasheet, draft.datasheetUrl ?? '', 2048],
+		['locationCabinet', labels.locationCabinet, structuredLocation?.cabinet ?? '', 64],
+		['locationBox', labels.locationBox, structuredLocation?.box ?? '', 64],
+		['locationRow', labels.locationRow, structuredLocation?.row ?? '', 64],
+		['locationColumn', labels.locationColumn, structuredLocation?.column ?? '', 64],
 		['note', labels.note, draft.note, 4000],
 	] as const;
 	const inputs = new Map<string, HTMLInputElement>();
@@ -1796,6 +2094,7 @@ function showOverviewEditor(
 		row.textContent = label;
 		const input = document.createElement('input');
 		input.name = name;
+		input.type = name === 'datasheetUrl' ? 'url' : 'text';
 		input.value = value;
 		input.maxLength = maxLength;
 		input.required = name === 'name';
@@ -1812,6 +2111,14 @@ function showOverviewEditor(
 	const quantityRow = document.createElement('label');
 	quantityRow.textContent = labels.columnQuantity;
 	quantityRow.append(quantity);
+	const minimumQuantity = document.createElement('input');
+	minimumQuantity.type = 'number';
+	minimumQuantity.min = '1';
+	minimumQuantity.step = '1';
+	minimumQuantity.value = draft.minimumQuantity === undefined ? '' : String(draft.minimumQuantity);
+	const minimumQuantityRow = document.createElement('label');
+	minimumQuantityRow.textContent = labels.columnMinimumQuantity;
+	minimumQuantityRow.append(minimumQuantity);
 	const precision = document.createElement('select');
 	fillOptions(precision, [['exact', labels.exact], ['estimated', labels.estimated]]);
 	precision.value = draft.precision;
@@ -1824,6 +2131,12 @@ function showOverviewEditor(
 	const depletedRow = document.createElement('label');
 	depletedRow.className = 'overview-edit-checkbox';
 	depletedRow.append(depleted, document.createTextNode(labels.depleted));
+	const favorite = document.createElement('input');
+	favorite.type = 'checkbox';
+	favorite.checked = draft.favorite ?? item.favorite;
+	const favoriteRow = document.createElement('label');
+	favoriteRow.className = 'overview-edit-checkbox';
+	favoriteRow.append(favorite, document.createTextNode(labels.favorite));
 	const category = document.createElement('select');
 	fillCategoryOptions(category, categories, labels);
 	category.value = initialCategoryId ?? '';
@@ -1845,7 +2158,7 @@ function showOverviewEditor(
 		}
 	});
 	precision.disabled = depleted.checked;
-	form.append(quantityRow, precisionRow, categoryRow, depletedRow);
+	form.append(quantityRow, minimumQuantityRow, precisionRow, categoryRow, depletedRow, favoriteRow);
 	const error = document.createElement('p');
 	error.className = 'inline-error';
 	error.hidden = true;
@@ -1867,6 +2180,16 @@ function showOverviewEditor(
 		const lcscPartNumber = inputs.get('lcscPartNumber')!.value.trim().replaceAll(/\s+/g, '').toUpperCase();
 		const quantityText = quantity.value.trim();
 		const quantityValue = Number(quantityText);
+		const minimumQuantityText = minimumQuantity.value.trim();
+		const minimumQuantityValue = Number(minimumQuantityText);
+		let datasheetUrl: string | undefined;
+		let datasheetValidation: string | undefined;
+		try {
+			datasheetUrl = normalizeDatasheetUrl(inputs.get('datasheetUrl')!.value);
+		}
+		catch {
+			datasheetValidation = labels.datasheetInvalid;
+		}
 		const validation = !name
 			? labels.nameRequired
 			: lcscPartNumber && !/^C\d+$/.test(lcscPartNumber)
@@ -1877,12 +2200,23 @@ function showOverviewEditor(
 							? labels.quantityNonNegative
 							: !/^\d+$/.test(quantityText) || !Number.isSafeInteger(quantityValue)
 									? labels.quantityInteger
-									: undefined;
+									: minimumQuantityText
+										&& (!/^\d+$/.test(minimumQuantityText)
+											|| !Number.isSafeInteger(minimumQuantityValue)
+											|| minimumQuantityValue <= 0)
+										? labels.minimumQuantityPositive
+										: datasheetValidation;
 		if (validation) {
 			error.textContent = validation;
 			error.hidden = false;
 			return;
 		}
+		const nextStructuredLocation = normalizeStructuredLocation({
+			cabinet: inputs.get('locationCabinet')!.value,
+			box: inputs.get('locationBox')!.value,
+			row: inputs.get('locationRow')!.value,
+			column: inputs.get('locationColumn')!.value,
+		});
 		const nextDraft = {
 			identity: {
 				description: inputs.get('description')!.value,
@@ -1894,7 +2228,11 @@ function showOverviewEditor(
 				supplierId: inputs.get('supplierId')!.value,
 			},
 			location: inputs.get('location')!.value,
+			datasheetUrl: datasheetUrl ?? null,
+			structuredLocation: nextStructuredLocation ?? null,
 			note: inputs.get('note')!.value,
+			minimumQuantity: minimumQuantityText ? minimumQuantityValue : undefined,
+			favorite: favorite.checked,
 			precision: (depleted.checked ? 'exact' : precision.value) as 'exact' | 'estimated',
 			quantity: depleted.checked ? 0 : quantityValue,
 		};
@@ -1957,8 +2295,15 @@ function createOperationId(): string {
 	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function textCell(value: string, emptyValue?: string): HTMLTableCellElement {
+function textCell(
+	value: string,
+	emptyValue?: string,
+	column?: InventoryOverviewConfigurableColumn,
+): HTMLTableCellElement {
 	const cell = document.createElement('td');
+	if (column) {
+		cell.dataset.inventoryColumn = column;
+	}
 	cell.textContent = value || emptyValue || '';
 	if (!value) {
 		cell.className = 'muted-value';
@@ -1966,8 +2311,15 @@ function textCell(value: string, emptyValue?: string): HTMLTableCellElement {
 	return cell;
 }
 
-function statusCell(value: string, className: string): HTMLTableCellElement {
+function statusCell(
+	value: string,
+	className: string,
+	column?: InventoryOverviewConfigurableColumn,
+): HTMLTableCellElement {
 	const cell = document.createElement('td');
+	if (column) {
+		cell.dataset.inventoryColumn = column;
+	}
 	cell.textContent = value;
 	cell.className = className;
 	return cell;
@@ -1984,6 +2336,17 @@ function quantityLabel(item: InventoryOverviewItemSnapshot, labels: InventoryOve
 		return formatLabel(labels.quantityEstimated, { count: item.quantity });
 	}
 	return String(item.quantity);
+}
+
+function replenishmentLabel(item: InventoryOverviewItemSnapshot, labels: InventoryOverviewLabels): string {
+	switch (item.replenishmentStatus) {
+		case 'depleted': return labels.replenishmentDepleted;
+		case 'low': return labels.replenishmentLow;
+		case 'needs-count': return labels.replenishmentNeedsCount;
+		case 'not-configured': return labels.replenishmentNotConfigured;
+		case 'possibly-low': return labels.replenishmentPossiblyLow;
+		case 'sufficient': return labels.replenishmentSufficient;
+	}
 }
 
 function modelLabel(item: InventoryOverviewItemSnapshot, labels: InventoryOverviewLabels): string {
@@ -2025,9 +2388,16 @@ function getElements(): PanelElements {
 		searchScope: element('search-scope', HTMLSelectElement),
 		clearSearch: element('clear-search', HTMLButtonElement),
 		stockFilter: element('stock-filter', HTMLSelectElement),
+		replenishmentFilter: element('replenishment-filter', HTMLSelectElement),
+		favoriteFilter: element('favorite-filter', HTMLSelectElement),
 		modelFilter: element('model-filter', HTMLSelectElement),
 		sort: element('sort-select', HTMLSelectElement),
 		clearFilters: element('clear-filters', HTMLButtonElement),
+		columnSettings: element('column-settings', HTMLButtonElement),
+		columnSettingsMenu: element('column-settings-menu', HTMLElement),
+		columnSettingsOptions: element('column-settings-options', HTMLElement),
+		restoreDefaultColumns: element('restore-default-columns', HTMLButtonElement),
+		exportReplenishment: element('export-replenishment', HTMLButtonElement),
 		refresh: element('refresh', HTMLButtonElement),
 		openCategories: element('open-categories', HTMLButtonElement),
 		closeCategories: element('close-categories', HTMLButtonElement),
@@ -2061,7 +2431,9 @@ function getElements(): PanelElements {
 		bulkRootCategory: element('bulk-root-category', HTMLSelectElement),
 		bulkChildCategory: element('bulk-child-category', HTMLSelectElement),
 		applyMove: element('apply-move', HTMLButtonElement),
+		deleteSelected: element('delete-selected', HTMLButtonElement),
 		selectPage: element('select-page', HTMLInputElement),
+		table: element('inventory-table', HTMLTableElement),
 		rows: element('inventory-rows', HTMLTableSectionElement),
 		emptyResults: element('empty-results', HTMLElement),
 		pageSize: element('page-size', HTMLSelectElement),

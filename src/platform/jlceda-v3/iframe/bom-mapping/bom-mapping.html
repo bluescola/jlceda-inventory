@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>BOM Mapping</title>
+	<style>/* __BOM_MAPPING_INLINE_CSS__ */</style>
+</head>
+<body>
+	<main class="panel-shell" id="panel-shell" aria-busy="true">
+		<div class="boot-status" id="boot-status" role="status">
+			<span class="boot-spinner" aria-hidden="true"></span>
+			<span id="boot-message">...</span>
+		</div>
+
+		<section class="mapping-panel" id="mapping-panel" hidden>
+			<nav class="file-tabs" id="file-tabs" aria-label="BOM files"></nav>
+
+			<header class="file-summary">
+				<dl>
+					<div><dt id="file-label"></dt><dd id="file-name"></dd></div>
+					<div><dt id="format-label"></dt><dd id="file-format"></dd></div>
+				</dl>
+			</header>
+
+			<div class="source-controls">
+				<label>
+					<span id="worksheet-label"></span>
+					<select id="worksheet"></select>
+				</label>
+				<label>
+					<span id="header-candidate-label"></span>
+					<select id="header-candidate"></select>
+				</label>
+				<label>
+					<span id="header-row-label"></span>
+					<input id="header-row" type="number" inputmode="numeric" step="1">
+				</label>
+			</div>
+
+			<div class="workspace">
+				<section class="mapping-region" aria-labelledby="mapping-title">
+					<div class="section-heading">
+						<h2 id="mapping-title"></h2>
+						<p id="mapping-hint"></p>
+					</div>
+					<div class="mapping-rows" id="mapping-rows"></div>
+					<p class="mapping-warning" id="mapping-warning" role="alert" hidden></p>
+				</section>
+
+				<section class="preview-region" aria-labelledby="preview-title">
+					<h2 id="preview-title"></h2>
+					<div class="preview-scroll">
+						<table id="preview-table">
+							<thead id="preview-head"></thead>
+							<tbody id="preview-body"></tbody>
+						</table>
+					</div>
+				</section>
+			</div>
+
+			<p class="form-error" id="form-error" role="alert" hidden></p>
+			<footer class="actions">
+				<button id="cancel" class="button button-secondary" type="button"></button>
+				<button id="confirm" class="button button-primary" type="button"></button>
+			</footer>
+		</section>
+
+		<p class="connection-error" id="connection-error" role="alert" hidden></p>
+	</main>
+	<script>/* __BOM_MAPPING_INLINE_JS__ */</script>
+</body>
+</html>

@@ -9,6 +9,7 @@ import type {
 import type { InventoryItemEditDraft, InventoryItemEditOptions, InventoryItemPanel } from './inventory-item-panel';
 import type { DiagnosticTrace } from './native-diagnostics';
 import { normalizeInventoryText, normalizeLcscPartNumber } from '../../../features/inventory/domain/inventory-item';
+import { normalizeDatasheetUrl, normalizeStructuredLocation } from '../../../features/inventory/domain/inventory-metadata';
 import {
 	createInventoryItemSnapshot,
 	createInventoryItemSuggestion,
@@ -289,6 +290,7 @@ export class IFrameInventoryItemPanel implements InventoryItemPanel {
 			package: this.t('part.packageLabel'),
 			description: this.t('part.descriptionLabel'),
 			quantity: this.t('inventory.quantityLabel'),
+			minimumQuantity: this.t('inventoryItem.minimumQuantity'),
 			precision: this.t('inventoryItem.precision'),
 			exact: this.t('inventory.exact'),
 			estimated: this.t('inventory.estimated'),
@@ -296,8 +298,24 @@ export class IFrameInventoryItemPanel implements InventoryItemPanel {
 			stockState: this.t('inventoryItem.stockState'),
 			depleted: this.t('inventory.depleted'),
 			inStock: this.t('inventory.inStock'),
+			favorite: this.t('inventoryItem.favorite'),
+			favoriteYes: this.t('inventoryItem.favoriteYes'),
+			favoriteNo: this.t('inventoryItem.favoriteNo'),
+			replenishmentStatus: this.t('inventoryItem.replenishmentStatus'),
+			replenishmentDepleted: this.t('inventoryItem.replenishment.depleted'),
+			replenishmentLow: this.t('inventoryItem.replenishment.low'),
+			replenishmentNeedsCount: this.t('inventoryItem.replenishment.needsCount'),
+			replenishmentNotConfigured: this.t('inventoryItem.replenishment.notConfigured'),
+			replenishmentPossiblyLow: this.t('inventoryItem.replenishment.possiblyLow'),
+			replenishmentSufficient: this.t('inventoryItem.replenishment.sufficient'),
 			location: this.t('inventory.locationLabel'),
 			chooseLocation: this.t('inventoryItem.chooseLocation'),
+			datasheet: this.t('inventoryItem.datasheet'),
+			structuredLocation: this.t('inventoryItem.structuredLocation'),
+			locationCabinet: this.t('inventoryItem.locationCabinet'),
+			locationBox: this.t('inventoryItem.locationBox'),
+			locationRow: this.t('inventoryItem.locationRow'),
+			locationColumn: this.t('inventoryItem.locationColumn'),
 			note: this.t('inventory.noteLabel'),
 			marketplace: this.t('marketplace.section'),
 			edaModel: this.t('edaModel.section'),
@@ -322,6 +340,8 @@ export class IFrameInventoryItemPanel implements InventoryItemPanel {
 			quantityRequired: this.t('inventoryItem.quantityRequired'),
 			quantityInteger: this.t('inventoryItem.quantityInteger'),
 			quantityNonNegative: this.t('inventoryItem.quantityNonNegative'),
+			minimumQuantityPositive: this.t('inventoryItem.minimumQuantityPositive'),
+			datasheetInvalid: this.t('inventoryItem.datasheetInvalid'),
 			loading: this.t('productForm.loading'),
 			connectionError: this.t('productForm.connectionError'),
 			saveError: this.t('productForm.saveError'),
@@ -395,12 +415,25 @@ class EdaInventoryItemIFrameHost implements InventoryItemIFrameHost {
 
 function createEditFormState(item: InventoryItem, initial?: InventoryItemEditDraft): InventoryItemEditFormState {
 	if (initial) {
+		const datasheetUrl = initial.datasheetUrl === undefined ? item.datasheetUrl : initial.datasheetUrl ?? undefined;
+		const structuredLocation = initial.structuredLocation === undefined
+			? item.structuredLocation
+			: initial.structuredLocation ?? undefined;
 		return {
 			...initial.identity,
 			quantity: String(initial.quantity),
 			precision: initial.quantity === 0 ? 'exact' : initial.precision,
 			depleted: initial.quantity === 0,
+			minimumQuantity: initial.minimumQuantity === undefined
+				? item.minimumQuantity === undefined ? '' : String(item.minimumQuantity)
+				: String(initial.minimumQuantity),
+			favorite: initial.favorite ?? item.favorite === true,
 			location: initial.location,
+			datasheetUrl: datasheetUrl ?? '',
+			locationCabinet: structuredLocation?.cabinet ?? '',
+			locationBox: structuredLocation?.box ?? '',
+			locationRow: structuredLocation?.row ?? '',
+			locationColumn: structuredLocation?.column ?? '',
 			note: initial.note,
 		};
 	}
@@ -418,7 +451,14 @@ function createEditFormState(item: InventoryItem, initial?: InventoryItemEditDra
 		quantity,
 		precision: item.quantity === 0 ? 'exact' : item.precision === 'estimated' ? 'estimated' : 'exact',
 		depleted: item.quantity === 0 || item.state === 'depleted',
+		minimumQuantity: item.minimumQuantity === undefined ? '' : String(item.minimumQuantity),
+		favorite: item.favorite === true,
 		location: item.location ?? '',
+		datasheetUrl: item.datasheetUrl ?? '',
+		locationCabinet: item.structuredLocation?.cabinet ?? '',
+		locationBox: item.structuredLocation?.box ?? '',
+		locationRow: item.structuredLocation?.row ?? '',
+		locationColumn: item.structuredLocation?.column ?? '',
 		note: item.note ?? '',
 	};
 }
@@ -437,7 +477,21 @@ function normalizeEditDraft(value: InventoryItemEditFormState): InventoryItemEdi
 		throw new TypeError('Quantity must be a safe integer.');
 	}
 	const depleted = value.depleted || quantity === 0;
-	return {
+	const datasheetUrl = normalizeDatasheetUrl(value.datasheetUrl);
+	const structuredLocation = normalizeStructuredLocation({
+		cabinet: value.locationCabinet,
+		box: value.locationBox,
+		row: value.locationRow,
+		column: value.locationColumn,
+	});
+	const minimumQuantityText = value.minimumQuantity?.trim() ?? '';
+	if (minimumQuantityText
+		&& (!/^\d+$/.test(minimumQuantityText)
+			|| !Number.isSafeInteger(Number(minimumQuantityText))
+			|| Number(minimumQuantityText) <= 0)) {
+		throw new TypeError('Minimum quantity must be a positive safe integer.');
+	}
+	const draft: InventoryItemEditDraft = {
 		identity: {
 			name,
 			lcscPartNumber: normalizeLcscPartNumber(value.lcscPartNumber) ?? '',
@@ -449,9 +503,16 @@ function normalizeEditDraft(value: InventoryItemEditFormState): InventoryItemEdi
 		},
 		quantity: depleted ? 0 : quantity,
 		precision: depleted ? 'exact' : value.precision,
+		favorite: value.favorite === true,
 		location: normalizeInventoryText(value.location),
+		datasheetUrl: datasheetUrl ?? null,
+		structuredLocation: structuredLocation ?? null,
 		note: normalizeInventoryText(value.note),
 	};
+	if (minimumQuantityText) {
+		draft.minimumQuantity = Number(minimumQuantityText);
+	}
+	return draft;
 }
 
 function countChangedFields(initial: InventoryItemEditFormState, current: InventoryItemEditFormState): number {

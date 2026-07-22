@@ -42,7 +42,7 @@ function createHarness(): { repository: MemoryInventoryRepository; service: Inve
 }
 
 describe('inventory category document migration', () => {
-	it('migrates schema v2 to v4 without changing inventory data or revisions', () => {
+	it('migrates schema v2 to v5 without changing inventory data or revisions', () => {
 		const v2Document = {
 			schemaVersion: 2,
 			revision: 7,
@@ -74,6 +74,11 @@ describe('inventory category document migration', () => {
 			schemaVersion: INVENTORY_SCHEMA_VERSION,
 			categories: [],
 			orderImportBatches: [],
+			transactions: [],
+			stockOutBatches: [],
+			projectSnapshots: [],
+			purchaseRecords: [],
+			substituteLinks: [],
 		});
 	});
 
