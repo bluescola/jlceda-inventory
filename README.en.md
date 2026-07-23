@@ -6,7 +6,7 @@
 
 A personal component inventory extension for JLCEDA Professional V3. It treats LCSC marketplace product information and JLCEDA device models as independent states and helps prioritize existing stock during schematic design.
 
-The current release is `0.5.1`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
+The current release is `0.5.9`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
 
 ## Implemented
 
@@ -16,7 +16,7 @@ The current release is `0.5.1`. The extension does not require the developer to 
 - Focus and highlight an exact inventory row from the current SCH/PCB selection, search deterministic EDA model candidates for explicit confirmation, and preview raw package QR content plus parsed `pc`, `pm`, and `qty` before opening the existing inventory draft workflow.
 - Commit an explicitly confirmed BOM stock-out atomically, block semantic duplicates, allow a confirmed identical demand as a new production run, and reverse a complete batch with linked entries. This ledger covers only BOM stock-out and reversal, not ordinary edits or order receipt.
 - Persist project/document demand snapshots, show diffs before resynchronization, generate board-aware procurement suggestions, and store purchase/cost records separately. Purchase dates are stored as calendar-only `YYYY-MM-DD` values, with legacy timestamps normalized on read. User-confirmed substitute relationships are ranked for manual review only and never drive automatic matching or deduction.
-- On Desktop, initial automatic-backup setup requires no path input or picker. The extension creates `JLCEDA-Inventory/jlceda-inventory-latest.json` under the system Documents directory and enables backup after a successful test write. Existing saved paths remain usable and can be reset to the default location in one action. Restore strictly validates schema, budgets, references, and ledger closure, stages a recovery point, and reinstates the previous recovery point if the primary restore fails. Web keeps manual export and file restore.
+- On Desktop, initial automatic-backup setup opens the native folder picker directly. After a folder is selected, the extension creates `jlceda-inventory-latest.json` and enables backup only after a successful test write. Existing saved paths remain usable and a new folder can be selected at any time; cancelling the picker leaves settings unchanged. Restore strictly validates schema, budgets, references, and ledger closure, stages a recovery point, and reinstates the previous recovery point if the primary restore fails. Version `0.5.5` passed the specified Desktop cases for folder selection, permission rejection, disable/re-enable, consecutive saves, external restore, and recovery-snapshot restore. Restart persistence, full write-operation and fault-injection coverage, Web behavior, and cross-device behavior remain separate validation work. Web keeps Save inventory backup as and file restore.
 
 - Query the JLCEDA system library first when adding a C-number part. Use model information immediately on a match, and open the LCSC marketplace for confirmation only when lookup is missing or fails.
 - Keep marketplace products and EDA models independent; products without an EDA model can still be saved and managed as inventory.
@@ -29,25 +29,25 @@ The current release is `0.5.1`. The extension does not require the developer to 
 - Compare an existing record with the pending edit before merging duplicate identities, and use record revisions to avoid overwriting newer cross-computer changes.
 - Reload the latest record before deletion and require an irreversible confirmation showing its name, part number, and quantity.
 - Import catalog-backed inventory parts into the personal library, detect existing personal-library devices idempotently, and verify copied devices by reading them back instead of treating Favorites or an unverified API return as success.
-- Manage large inventories from a categorized overview whose primary search covers LCSC and supplier IDs, manufacturer part numbers, names, manufacturers, and packages. The sidebar separates system and two-level user categories; rows and selected groups can be dragged directly onto a category.
+- Manage large inventories from a categorized overview whose primary search covers LCSC and supplier IDs, manufacturer part numbers, names, manufacturers, and packages. The sidebar separates system and two-level user categories; rows and selected groups can be dragged directly onto a category. Actions, number, stock, package, and EDA model follow the name, with lower-frequency fields placed later.
 - Explicitly and idempotently import the two-level category tree from a personal or Favorites library without moving inventory items automatically. When the full tree API is unavailable, fall back to categories already used by library devices and warn that empty categories may be omitted.
 - Rank exact search matches above prefixes and partial matches, then prefer in-stock items among equally relevant results. Search belongs to the overview itself and is never presented as a menu command or virtual component.
-- Select an in-stock part and attach it to the pointer for schematic placement.
+- Open the categorized inventory overview from Place from inventory, search or browse its two-level categories, and attach any in-stock row with an available model to the pointer. The overview hides after success and inventory is not deducted automatically.
 - Batch-import LCSC order-detail `.xls`/`.xlsx` files from one multi-field window that sets the default state and duplicate strategy together, previews every file and expected inventory change, and reports parsing, model matching, and write progress. Order numbers and SHA-256 fingerprints prevent repeated imports while CSV/JSON remain supported. A selection is limited to 100 files, each at most 10 MiB; workbooks are limited to 32 worksheets, 128 columns per worksheet, and 10,000 data rows.
-- Export a versioned JSON backup, with destination and overwrite confirmation handled by the EDA system save dialog.
+- Use Save inventory backup as to create an independent versioned JSON snapshot. Destination and overwrite confirmation are handled by the EDA system save dialog rather than the fixed automatic-backup path.
 - Use Simplified Chinese or English menus and runtime messages.
 
 ## Synchronization and Server
 
 This extension has no custom backend and does not require users to configure a database. Inventory is stored with `SYS_Storage.setExtensionUserConfig()`.
 
-Official documentation describes this API as "extension user configuration," but does not guarantee cross-computer synchronization, capacity, propagation delay, or concurrent-conflict behavior. This repository therefore marks cross-computer synchronization as **pending V3 two-device validation** rather than presenting it as an officially guaranteed cloud database. Follow the [cross-device validation checklist](docs/cross-device-validation.md); configure automatic backup on Desktop and use manual export regularly on Web until validation is complete.
+Official documentation describes this API as "extension user configuration," but does not guarantee cross-computer synchronization, capacity, propagation delay, or concurrent-conflict behavior. This repository therefore marks cross-computer synchronization as **pending V3 two-device validation** rather than presenting it as an officially guaranteed cloud database. Follow the [cross-device validation checklist](docs/cross-device-validation.md); configure automatic backup on Desktop and use Save inventory backup as regularly on Web until validation is complete.
 
 GitHub can host source code, CI builds, and release files, but it cannot act directly as the runtime database.
 
 ## Installation
 
-1. Download `jlceda-inventory_v0.5.1.eext` from a Release or CI artifact.
+1. Download `jlceda-inventory_v0.5.9.eext` from a Release or CI artifact.
 2. Open JLCEDA Professional V3.
 3. Go to "Advanced -> Extension Manager -> Import" and select the `.eext` file.
 4. Enable the extension under Installed; enable "Show in top menu" to keep its entry in the top row.
@@ -96,7 +96,7 @@ tests/                      Pure business unit tests
 docs/                       Project documentation and roadmap
 ```
 
-See the [documentation index](docs/README.md), Chinese [0.5.1 new-feature test methods](docs/手动测试指南.md), [architecture](docs/architecture.md), [reliability roadmap](docs/roadmap.md), and [order import format](docs/order-import-format.md).
+See the [documentation index](docs/README.md), Chinese [0.5.9 new-feature test methods](docs/手动测试指南.md), [architecture](docs/architecture.md), [reliability roadmap](docs/roadmap.md), and [order import format](docs/order-import-format.md).
 
 ## Current Limitations
 

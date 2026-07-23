@@ -4,6 +4,52 @@
 
 # Changelog
 
+## 0.5.9 - 2026-07-23
+
+- Reorder the inventory overview's default business columns by operational frequency and information priority: Name, Actions, Number, Stock, Package, EDA model, Location, Category, Replenishment, Minimum stock, and Updated. The leading selection checkbox remains a fixed control column outside this business order.
+- Move frequent Place, View, and Edit actions from the end of each row to immediately after Name, and move the placement-gating EDA model status directly after Package. Low-frequency display-only fields now remain toward the end.
+- Keep headers, row cells, column settings, drag behavior, boundary documentation, and manual test guidance in the same order, with regression coverage for defaults and header-to-row alignment.
+
+## 0.5.8 - 2026-07-23
+
+- Replace the native Place from inventory selector with the existing inventory overview, reusing search, two-level categories, stock/model filters, sorting, and pagination. Eligible in-stock rows now expose Place as their first row action.
+- Send only the inventory ID and revision from the IFrame, then reload and validate stock, model reference, and the active schematic in the host before calling the official pointer-placement API. A successful bind hides the overview without stealing focus; failures restore it with a specific reason.
+- Add placement-adapter, overview-protocol, and controller regression coverage. Pointer binding still does not prove a canvas placement, so inventory is never deducted automatically; a focused `0.5.8` manual test is included.
+
+## 0.5.7 - 2026-07-23
+
+- Fix P0 backup/restore and other global inventory commands disappearing from the Schematic menu after `0.5.6` began using the correct Schematic context.
+- Home, Schematic, and PCB now share inventory-management, BOM, backup/restore, and diagnostics commands, while Schematic and PCB retain their document-specific stock-check and selection commands.
+
+## 0.5.6 - 2026-07-23
+
+- Fix JLCEDA 3.2.166 continuing to show the Home menu in a schematic, which hid schematic commands such as Check current design stock. The extension manifest now uses the current `schematic` context instead of the deprecated `sch` context.
+- Use distinct top-level menu IDs for Home, Schematic, and PCB so the host cannot overwrite same-ID groups across pages. Manifest contract tests and manual test guidance now lock the current contexts and command scope; business behavior and inventory data are unchanged.
+
+## 0.5.5 - 2026-07-23
+
+- Fix a completed queue Promise remaining after an inventory save while automatic backup is disabled, which could prevent normal saves and restores from refreshing the fixed JSON after re-enabling. Queue draining now starts only after its state reference is established, with an integration regression for disable-save, re-enable, and restore.
+- Retry one transient host rejection or file-write failure after 150 ms, covering short-lived file contention when a fixed backup is read and then immediately overwritten. A permanent backup failure still reports an alert without rolling back the committed EDA inventory write.
+- Record automatic-backup `status`, `revision`, `attempts`, and failure category in both release and diagnostic logs, and record the same revision when restore completes. Paths and inventory contents are not logged.
+- Pass the specified Desktop P0 cases: both external-file and recovery-snapshot restores refresh the fixed backup, and two ordinary saves after disable/re-enable advance it through revisions 60 and 61, leaving the fixed JSON byte-identical to the current inventory export. Restart persistence, full write-operation and fault-injection coverage, Web behavior, and the cross-device matrix still require separate validation.
+
+## 0.5.4 - 2026-07-23
+
+- Rename the manual Export inventory backup command to Save inventory backup as, clarifying that it opens the system save dialog for an independent snapshot instead of reusing or overwriting the fixed automatic-backup path.
+- Synchronize both menu locales, save-status copy, README, and manual test steps. Automatic folder selection, latest-snapshot writes, and restore behavior are unchanged.
+
+## 0.5.3 - 2026-07-23
+
+- Use the 0.5.2 verbose log to identify why the native folder picker failed in 16 ms: JLCEDA Professional 3.2.166 replaces global `fetch()` with a rejecting stub inside extension sandboxes, so the request never reached the client. Folder selection now goes through the public `SYS_ClientUrl.request()` API while preserving the client's own `openDir` request contract.
+- Keep the public Desktop and external-interaction permission checks and enable backup only after the fixed JSON passes a test write. Users can close other open/save dialogs and retry; cancelling the picker leaves settings unchanged.
+- Classify request, HTTP response, response-body, and host-result failures in diagnostics, with a regression test requiring the production adapter to route through `SYS_ClientUrl` instead of the sandboxed global network API.
+
+## 0.5.2 - 2026-07-23
+
+- Fix automatic-backup setup still failing at default-folder resolution in 0.5.1 diagnostics. Initial setup now opens JLCEDA's native folder picker directly and creates `jlceda-inventory-latest.json` in the selected folder, without path input or a manually created JSON file.
+- Cancelling the picker leaves settings unchanged and reports no error. Existing paths remain usable or can be migrated with Choose backup folder; the enabled state is stored only after the fixed JSON passes a test write.
+- Keep the public file API as the Desktop and Allow external interaction permission gate before invoking the client folder-picker bridge. Cancellation, permission failures, host errors, and malformed responses are separated in privacy-safe diagnostics and regression tests.
+
 ## 0.5.1 - 2026-07-22
 
 - Fix initial automatic-backup setup on JLCEDA Professional 3.2.166, where a client-config response mismatch can make `getDocumentsPath()` return an empty string and be misreported as missing external-interaction permission. After the official permission check succeeds, the adapter reads the actual Documents path from the same client-config call chain.
