@@ -3,7 +3,7 @@
 	"uuid": "22a2cf3515804a9fa91e230c4a58d896",
 	"displayName": "元器件库存",
 	"description": "管理个人元器件库存，并优先使用已有库存。",
-	"version": "0.5.1",
+	"version": "0.5.9",
 	"publisher": "bluescola",
 	"engines": {
 		"eda": "^3.0.0"
@@ -34,7 +34,7 @@
 	"headerMenus": {
 		"home": [
 			{
-				"id": "componentInventory",
+				"id": "componentInventoryHome",
 				"title": "元器件库存",
 				"menuItems": [
 					{
@@ -94,7 +94,7 @@
 					},
 					{
 						"id": "exportBackup",
-						"title": "导出库存备份",
+						"title": "另存库存备份",
 						"registerFn": "exportInventoryBackup"
 					},
 					{
@@ -125,9 +125,9 @@
 				]
 			}
 		],
-		"sch": [
+		"schematic": [
 			{
-				"id": "componentInventory",
+				"id": "componentInventorySchematic",
 				"title": "元器件库存",
 				"menuItems": [
 					{
@@ -161,6 +161,61 @@
 						"registerFn": "addByLcscPartNumber"
 					},
 					{
+						"id": "addManual",
+						"title": "添加自定义元器件",
+						"registerFn": "addCustomComponent"
+					},
+					{
+						"id": "checkExternalBomStock",
+						"title": "校验外部 BOM 库存",
+						"registerFn": "checkExternalBomStock"
+					},
+					{
+						"id": "compareBomVersions",
+						"title": "对比 BOM 版本",
+						"registerFn": "compareBomVersions"
+					},
+					{
+						"id": "stockOutBomFile",
+						"title": "按 BOM 整批出库",
+						"registerFn": "stockOutBomFile"
+					},
+					{
+						"id": "inventoryTransactions",
+						"title": "BOM 出库批次与撤销流水",
+						"registerFn": "openInventoryTransactions"
+					},
+					{
+						"id": "substituteLinks",
+						"title": "管理替代料关系",
+						"registerFn": "manageSubstituteLinks"
+					},
+					{
+						"id": "importOrder",
+						"title": "导入订单文件",
+						"registerFn": "importOrderFile"
+					},
+					{
+						"id": "importPackageCode",
+						"title": "扫描包装码入库",
+						"registerFn": "importPackageCode"
+					},
+					{
+						"id": "exportBackup",
+						"title": "另存库存备份",
+						"registerFn": "exportInventoryBackup"
+					},
+					{
+						"id": "automaticBackupSettings",
+						"title": "自动备份设置",
+						"registerFn": "configureAutomaticBackup"
+					},
+					{
+						"id": "restoreBackup",
+						"title": "恢复库存备份",
+						"registerFn": "restoreInventoryBackup"
+					},
+					{
 						"id": "viewDiagnosticLogs",
 						"title": "查看诊断日志",
 						"registerFn": "showDiagnosticLogs"
@@ -169,13 +224,18 @@
 						"id": "exportDiagnosticLogs",
 						"title": "导出诊断日志",
 						"registerFn": "exportDiagnosticLogs"
+					},
+					{
+						"id": "about",
+						"title": "关于库存扩展",
+						"registerFn": "about"
 					}
 				]
 			}
 		],
 		"pcb": [
 			{
-				"id": "componentInventory",
+				"id": "componentInventoryPcb",
 				"title": "元器件库存",
 				"menuItems": [
 					{
@@ -204,6 +264,61 @@
 						"registerFn": "addByLcscPartNumber"
 					},
 					{
+						"id": "addManual",
+						"title": "添加自定义元器件",
+						"registerFn": "addCustomComponent"
+					},
+					{
+						"id": "checkExternalBomStock",
+						"title": "校验外部 BOM 库存",
+						"registerFn": "checkExternalBomStock"
+					},
+					{
+						"id": "compareBomVersions",
+						"title": "对比 BOM 版本",
+						"registerFn": "compareBomVersions"
+					},
+					{
+						"id": "stockOutBomFile",
+						"title": "按 BOM 整批出库",
+						"registerFn": "stockOutBomFile"
+					},
+					{
+						"id": "inventoryTransactions",
+						"title": "BOM 出库批次与撤销流水",
+						"registerFn": "openInventoryTransactions"
+					},
+					{
+						"id": "substituteLinks",
+						"title": "管理替代料关系",
+						"registerFn": "manageSubstituteLinks"
+					},
+					{
+						"id": "importOrder",
+						"title": "导入订单文件",
+						"registerFn": "importOrderFile"
+					},
+					{
+						"id": "importPackageCode",
+						"title": "扫描包装码入库",
+						"registerFn": "importPackageCode"
+					},
+					{
+						"id": "exportBackup",
+						"title": "另存库存备份",
+						"registerFn": "exportInventoryBackup"
+					},
+					{
+						"id": "automaticBackupSettings",
+						"title": "自动备份设置",
+						"registerFn": "configureAutomaticBackup"
+					},
+					{
+						"id": "restoreBackup",
+						"title": "恢复库存备份",
+						"registerFn": "restoreInventoryBackup"
+					},
+					{
 						"id": "viewDiagnosticLogs",
 						"title": "查看诊断日志",
 						"registerFn": "showDiagnosticLogs"
@@ -212,6 +327,11 @@
 						"id": "exportDiagnosticLogs",
 						"title": "导出诊断日志",
 						"registerFn": "exportDiagnosticLogs"
+					},
+					{
+						"id": "about",
+						"title": "关于库存扩展",
+						"registerFn": "about"
 					}
 				]
 			}

@@ -83,7 +83,7 @@ describe('runtime locale files', () => {
 		expect(english['关于库存扩展']).toBe('About inventory extension');
 	});
 
-	it('keeps one grouped inventory menu in the established editor contexts', () => {
+	it('uses current editor context names and distinct grouped menu ids', () => {
 		const manifest = JSON.parse(readFileSync(resolve('extension.json'), 'utf8')) as {
 			headerMenus: Record<string, Array<{ id: string; menuItems?: Array<{ id: string; registerFn?: string }>; registerFn?: string }>>;
 		};
@@ -107,15 +107,27 @@ describe('runtime locale files', () => {
 				'exportDiagnosticLogs',
 				'about',
 			],
-			sch: [
+			schematic: [
 				'inventoryOverview',
 				'placeFromInventory',
 				'locateSelectedInventory',
 				'checkCurrentDesignStock',
 				'projectPlanning',
 				'addByLcsc',
+				'addManual',
+				'checkExternalBomStock',
+				'compareBomVersions',
+				'stockOutBomFile',
+				'inventoryTransactions',
+				'substituteLinks',
+				'importOrder',
+				'importPackageCode',
+				'exportBackup',
+				'automaticBackupSettings',
+				'restoreBackup',
 				'viewDiagnosticLogs',
 				'exportDiagnosticLogs',
+				'about',
 			],
 			pcb: [
 				'inventoryOverview',
@@ -123,16 +135,49 @@ describe('runtime locale files', () => {
 				'checkCurrentDesignStock',
 				'projectPlanning',
 				'addByLcsc',
+				'addManual',
+				'checkExternalBomStock',
+				'compareBomVersions',
+				'stockOutBomFile',
+				'inventoryTransactions',
+				'substituteLinks',
+				'importOrder',
+				'importPackageCode',
+				'exportBackup',
+				'automaticBackupSettings',
+				'restoreBackup',
 				'viewDiagnosticLogs',
 				'exportDiagnosticLogs',
+				'about',
 			],
 		};
-		expect(Object.keys(manifest.headerMenus).sort()).toEqual(['home', 'pcb', 'sch']);
+		const expectedTopMenuIds: Record<string, string> = {
+			home: 'componentInventoryHome',
+			schematic: 'componentInventorySchematic',
+			pcb: 'componentInventoryPcb',
+		};
+		const topMenuIds: string[] = [];
+		expect(Object.keys(manifest.headerMenus).sort()).toEqual(['home', 'pcb', 'schematic']);
 		for (const [context, menus] of Object.entries(manifest.headerMenus)) {
 			expect(menus).toHaveLength(1);
-			expect(menus[0]).toMatchObject({ id: 'componentInventory' });
+			expect(menus[0]).toMatchObject({ id: expectedTopMenuIds[context] });
 			expect(menus[0]).not.toHaveProperty('registerFn');
 			expect(menus[0].menuItems?.map(item => item.id)).toEqual(expectedMenuItems[context]);
+			topMenuIds.push(menus[0].id);
+		}
+		expect(new Set(topMenuIds).size).toBe(topMenuIds.length);
+		expect(manifest.headerMenus.schematic[0].menuItems).toEqual(expect.arrayContaining([
+			expect.objectContaining({ id: 'checkCurrentDesignStock', registerFn: 'checkCurrentDesignStock' }),
+		]));
+		expect(manifest.headerMenus.home[0].menuItems).toEqual(expect.arrayContaining([
+			expect.objectContaining({ id: 'checkExternalBomStock', registerFn: 'checkExternalBomStock' }),
+		]));
+		for (const context of ['home', 'schematic', 'pcb']) {
+			expect(manifest.headerMenus[context][0].menuItems).toEqual(expect.arrayContaining([
+				expect.objectContaining({ id: 'exportBackup', registerFn: 'exportInventoryBackup' }),
+				expect.objectContaining({ id: 'automaticBackupSettings', registerFn: 'configureAutomaticBackup' }),
+				expect.objectContaining({ id: 'restoreBackup', registerFn: 'restoreInventoryBackup' }),
+			]));
 		}
 	});
 });

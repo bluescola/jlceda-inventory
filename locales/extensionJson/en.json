@@ -12,7 +12,7 @@
 	"管理替代料关系": "Manage substitute links",
 	"导入订单文件": "Import order file",
 	"扫描包装码入库": "Import package code",
-	"导出库存备份": "Export inventory backup",
+	"另存库存备份": "Save inventory backup as",
 	"自动备份设置": "Automatic backup settings",
 	"恢复库存备份": "Restore inventory backup",
 	"查看诊断日志": "View diagnostic logs",
