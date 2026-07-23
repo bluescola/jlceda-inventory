@@ -266,13 +266,14 @@ function simplifyDetails(details: DiagnosticDetails | undefined, type: Diagnosti
 	// Keep field identity and lengths only — never field contents — so release
 	// builds can still prove whether multi-field input/submit fired.
 	const keys = type === 'error'
-		? ['attempts', 'changedFields', 'elapsedMs', 'error', 'errorName', 'field', 'length', 'mode', 'opened', 'reason', 'returnedType', 'stage', 'status', 'step', 'version']
+		? ['attempts', 'changedFields', 'elapsedMs', 'error', 'errorName', 'failure', 'field', 'length', 'mode', 'opened', 'reason', 'returnedType', 'revision', 'stage', 'status', 'step', 'version']
 		: [
 				'attempts',
 				'changedFields',
 				'descriptionLength',
 				'elapsedMs',
 				'errorName',
+				'failure',
 				'field',
 				'height',
 				'iframeId',
@@ -288,6 +289,7 @@ function simplifyDetails(details: DiagnosticDetails | undefined, type: Diagnosti
 				'pathLength',
 				'reason',
 				'returnedType',
+				'revision',
 				'stage',
 				'status',
 				'step',

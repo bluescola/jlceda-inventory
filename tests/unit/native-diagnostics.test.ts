@@ -152,6 +152,42 @@ describe('nativeDiagnostics', () => {
 		expect(document.entries.find(entry => entry.event === 'workflow.error')?.details).toEqual({ error: 'SDK failed' });
 	});
 
+	it('keeps automatic backup outcomes and revisions in simplified logs', async () => {
+		let stored: DiagnosticLogDocument | undefined;
+		vi.stubGlobal('eda', {
+			sys_Log: { add: vi.fn(), find: vi.fn().mockResolvedValue([]) },
+			sys_Message: { showToastMessage: vi.fn() },
+			sys_PanelControl: { openBottomPanel: vi.fn() },
+			sys_Storage: {
+				getExtensionUserConfig: vi.fn(() => stored),
+				setExtensionUserConfig: vi.fn(async (_key: string, value: DiagnosticLogDocument) => {
+					stored = value;
+					return true;
+				}),
+			},
+		});
+		const diagnostics = new NativeDiagnostics(t, '0.5.5', 'simplified');
+		const trace = diagnostics.start('automatic-inventory-backup', false);
+
+		trace.warn('auto-backup.background-result', {
+			attempts: 2,
+			backupPath: 'C:\\private\\inventory.json',
+			failure: 'write-failed',
+			revision: 50,
+			status: 'failed',
+		});
+		await diagnostics.flush();
+
+		const document = await diagnostics.exportDocument();
+		expect(document.entries.at(-1)?.details).toEqual({
+			attempts: 2,
+			failure: 'write-failed',
+			revision: 50,
+			status: 'failed',
+		});
+		expect(JSON.stringify(document)).not.toContain('C:\\\\private');
+	});
+
 	it('keeps product-form field identity and lengths in simplified logs without field contents', async () => {
 		let stored: DiagnosticLogDocument | undefined;
 		vi.stubGlobal('eda', {

@@ -3,7 +3,6 @@ import type { InventoryRepository } from '../../../features/inventory/ports/inve
 import { cloneInventoryDocument } from '../../../features/inventory/domain/inventory-document';
 
 export const AUTOMATIC_BACKUP_SETTINGS_KEY = 'inventory.v1.auto-backup.settings';
-export const AUTOMATIC_BACKUP_DIRECTORY_NAME = 'JLCEDA-Inventory';
 export const AUTOMATIC_BACKUP_FILE_NAME = 'jlceda-inventory-latest.json';
 export const MAXIMUM_BACKUP_PATH_LENGTH = 4096;
 
@@ -23,12 +22,12 @@ export type AutomaticBackupFailure
 
 export type AutomaticBackupResult
 	= | { status: 'disabled' }
-		| { status: 'succeeded'; completedAt: string }
-		| { status: 'failed'; attemptedAt: string; failure: AutomaticBackupFailure };
+		| { status: 'succeeded'; attempts?: number; completedAt: string }
+		| { status: 'failed'; attemptedAt: string; attempts?: number; failure: AutomaticBackupFailure };
 
 export interface AutomaticInventoryBackup {
 	getSettings: () => AutomaticBackupSettings;
-	getDefaultFolder: () => Promise<string | undefined>;
+	selectFolder: () => Promise<string | undefined>;
 	prepareBackupPath: (folderPath: string) => Promise<string>;
 	configure: (path: string) => Promise<AutomaticBackupSettings>;
 	disable: () => Promise<AutomaticBackupSettings>;
@@ -40,52 +39,63 @@ export interface AutomaticBackupHost {
 	readSettings: () => unknown;
 	writeSettings: (settings: AutomaticBackupSettings) => Promise<boolean>;
 	writeFile?: (path: string, contents: Blob) => Promise<boolean>;
-	getDocumentsPath?: () => Promise<string>;
-	getClientDocumentsPath?: () => Promise<string | undefined>;
-	createDirectory?: (folderPath: string) => Promise<boolean>;
+	selectFolder?: () => Promise<string | undefined>;
 }
 
+export interface AutomaticBackupClientResponse {
+	ok: boolean;
+	status: number;
+	json: () => Promise<unknown>;
+}
+
+export type AutomaticBackupClientRequest = (
+	url: string,
+	method: 'POST',
+	data: string,
+) => Promise<AutomaticBackupClientResponse>;
+
+export type AutomaticBackupFolderPickerStage
+	= | 'host-result'
+		| 'http-response'
+		| 'request'
+		| 'response-body';
+
+export class AutomaticBackupFolderPickerError extends Error {
+	public constructor(
+		message: string,
+		public readonly stage: AutomaticBackupFolderPickerStage = 'host-result',
+	) {
+		super(message);
+		this.name = 'AutomaticBackupFolderPickerError';
+	}
+}
 export class InvalidAutomaticBackupFolderError extends TypeError {}
 
 export class EdaAutomaticInventoryBackup implements AutomaticInventoryBackup {
 	private pendingDocument?: InventoryDocument;
 	private pendingBackup?: Promise<AutomaticBackupResult>;
+	private pendingFolderSelection?: Promise<string | undefined>;
 
 	public constructor(
 		private readonly host: AutomaticBackupHost = createAutomaticBackupHost(),
 		private readonly now: () => string = () => new Date().toISOString(),
+		private readonly waitBeforeRetry: () => Promise<void> = () => new Promise(resolve => setTimeout(resolve, 150)),
 	) {}
 
 	public getSettings(): AutomaticBackupSettings {
 		return sanitizeAutomaticBackupSettings(this.host.readSettings());
 	}
 
-	public async getDefaultFolder(): Promise<string | undefined> {
-		if (!this.host.getDocumentsPath) {
-			return undefined;
+	public selectFolder(): Promise<string | undefined> {
+		if (!this.host.selectFolder) {
+			return Promise.reject(new Error('The host does not provide a native backup folder picker.'));
 		}
-		const hostPath = await this.host.getDocumentsPath();
-		let documentsPath: string;
-		try {
-			documentsPath = normalizeBackupFolderPath(hostPath);
-		}
-		catch (error) {
-			if (!(error instanceof InvalidAutomaticBackupFolderError) || !this.host.getClientDocumentsPath) {
-				throw error;
-			}
-			documentsPath = normalizeBackupFolderPath(await this.host.getClientDocumentsPath() ?? '');
-		}
-		return appendFileSystemPath(documentsPath, AUTOMATIC_BACKUP_DIRECTORY_NAME);
+		this.pendingFolderSelection ??= this.selectFolderOnce();
+		return this.pendingFolderSelection;
 	}
 
 	public async prepareBackupPath(folderPath: string): Promise<string> {
 		const normalizedFolder = normalizeBackupFolderPath(folderPath);
-		if (!this.host.createDirectory) {
-			throw new Error('The automatic backup directory API is unavailable.');
-		}
-		if (!await this.host.createDirectory(normalizedFolder)) {
-			throw new Error('The host rejected the automatic backup directory creation.');
-		}
 		return appendFileSystemPath(normalizedFolder, AUTOMATIC_BACKUP_FILE_NAME);
 	}
 
@@ -112,8 +122,21 @@ export class EdaAutomaticInventoryBackup implements AutomaticInventoryBackup {
 
 	public backupAfterSave(document: InventoryDocument): Promise<AutomaticBackupResult> {
 		this.pendingDocument = cloneInventoryDocument(document);
-		this.pendingBackup ??= this.drainPendingBackups();
+		// Defer the drain until pendingBackup has been assigned. The disabled branch
+		// has no await, so starting it inline would clear pendingBackup and then
+		// immediately overwrite that clear with an already-resolved Promise.
+		this.pendingBackup ??= Promise.resolve().then(() => this.drainPendingBackups());
 		return this.pendingBackup;
+	}
+
+	private async selectFolderOnce(): Promise<string | undefined> {
+		try {
+			const selectedFolder = await this.host.selectFolder!();
+			return selectedFolder === undefined ? undefined : normalizeBackupFolderPath(selectedFolder);
+		}
+		finally {
+			this.pendingFolderSelection = undefined;
+		}
 	}
 
 	private async drainPendingBackups(): Promise<AutomaticBackupResult> {
@@ -136,6 +159,7 @@ export class EdaAutomaticInventoryBackup implements AutomaticInventoryBackup {
 
 	private async writeBackup(document: InventoryDocument, path: string | undefined): Promise<AutomaticBackupResult> {
 		const attemptedAt = this.now();
+		let attempts = 0;
 		let failure: AutomaticBackupFailure | undefined;
 		if (!this.host.writeFile) {
 			failure = 'api-unavailable';
@@ -144,8 +168,12 @@ export class EdaAutomaticInventoryBackup implements AutomaticInventoryBackup {
 			try {
 				const normalizedPath = normalizeBackupPath(path ?? '');
 				const contents = new Blob([JSON.stringify(document, undefined, 2)], { type: 'application/json;charset=utf-8' });
-				if (!await this.host.writeFile(normalizedPath, contents)) {
-					failure = 'host-rejected';
+				attempts = 1;
+				failure = await this.tryWriteBackup(normalizedPath, contents);
+				if (failure) {
+					await this.waitBeforeRetry();
+					attempts = 2;
+					failure = await this.tryWriteBackup(normalizedPath, contents);
 				}
 			}
 			catch {
@@ -166,11 +194,20 @@ export class EdaAutomaticInventoryBackup implements AutomaticInventoryBackup {
 			delete next.lastFailure;
 		}
 		if (!await this.host.writeSettings(next)) {
-			return { status: 'failed', attemptedAt, failure: 'settings-storage-failed' };
+			return { status: 'failed', attemptedAt, attempts, failure: 'settings-storage-failed' };
 		}
 		return failure
-			? { status: 'failed', attemptedAt, failure }
-			: { status: 'succeeded', completedAt: attemptedAt };
+			? { status: 'failed', attemptedAt, attempts, failure }
+			: { status: 'succeeded', attempts, completedAt: attemptedAt };
+	}
+
+	private async tryWriteBackup(path: string, contents: Blob): Promise<AutomaticBackupFailure | undefined> {
+		try {
+			return await this.host.writeFile!(path, contents) ? undefined : 'host-rejected';
+		}
+		catch {
+			return 'write-failed';
+		}
 	}
 }
 
@@ -178,7 +215,7 @@ export class AutomaticBackupInventoryRepository implements InventoryRepository {
 	public constructor(
 		private readonly primary: InventoryRepository,
 		private readonly backup: AutomaticInventoryBackup,
-		private readonly onBackupResult?: (result: AutomaticBackupResult) => void,
+		private readonly onBackupResult?: (result: AutomaticBackupResult, revision: number) => void,
 	) {}
 
 	public load(): Promise<InventoryDocument> {
@@ -215,11 +252,12 @@ export class AutomaticBackupInventoryRepository implements InventoryRepository {
 			result = {
 				status: 'failed',
 				attemptedAt: new Date().toISOString(),
+				attempts: 0,
 				failure: 'write-failed',
 			};
 		}
 		try {
-			this.onBackupResult?.(result);
+			this.onBackupResult?.(result, document.revision);
 		}
 		catch {
 			// A notification failure must not turn an already committed primary save into a failed operation.
@@ -246,21 +284,14 @@ export function sanitizeAutomaticBackupSettings(value: unknown): AutomaticBackup
 
 function createAutomaticBackupHost(): AutomaticBackupHost {
 	const fileSystem = typeof eda === 'undefined' ? undefined : eda.sys_FileSystem;
-	let externalInteractionConfirmed = false;
-	const getDocumentsPath = typeof fileSystem?.getDocumentsPath === 'function'
+	const clientUrl = typeof eda === 'undefined' ? undefined : eda.sys_ClientUrl;
+	const selectFolder = typeof fileSystem?.getDocumentsPath === 'function' && typeof clientUrl?.request === 'function'
 		? async () => {
-			const path = await fileSystem.getDocumentsPath();
-			externalInteractionConfirmed = true;
-			return path;
-		}
-		: undefined;
-	const getClientDocumentsPath = typeof fetch === 'function'
-		? () => externalInteractionConfirmed ? readDocumentsPathFromClientConfig() : Promise.resolve(undefined)
-		: undefined;
-	const createDirectory = typeof fileSystem?.createDirectoryInFileSystem === 'function'
-		? async (folderPath: string) => {
-			const created = await fileSystem.createDirectoryInFileSystem(folderPath);
-			return created || (externalInteractionConfirmed && await createDirectoryThroughClientApi(folderPath));
+			const documentsPath = await fileSystem.getDocumentsPath();
+			return selectDirectoryThroughClientApi(
+				typeof documentsPath === 'string' ? documentsPath : '',
+				(url, method, data) => clientUrl.request(url, method, data),
+			);
 		}
 		: undefined;
 	return {
@@ -269,9 +300,7 @@ function createAutomaticBackupHost(): AutomaticBackupHost {
 		writeFile: typeof fileSystem?.saveFileToFileSystem === 'function'
 			? (path, contents) => fileSystem.saveFileToFileSystem(path, contents, undefined, true)
 			: undefined,
-		getDocumentsPath,
-		getClientDocumentsPath,
-		createDirectory,
+		selectFolder,
 	};
 }
 
@@ -348,51 +377,58 @@ function fileUrlToNativePath(value: string): string {
 	return pathname;
 }
 
-async function readDocumentsPathFromClientConfig(): Promise<string | undefined> {
+export async function selectDirectoryThroughClientApi(
+	defaultPath: string,
+	request: AutomaticBackupClientRequest,
+): Promise<string | undefined> {
+	let response: AutomaticBackupClientResponse;
 	try {
-		const response = await fetch('app://api/client/config', {
-			cache: 'no-cache',
-			priority: 'high',
-			redirect: 'follow',
-		});
-		if (!response.ok) {
-			return undefined;
-		}
-		return extractDocumentsPathFromClientConfig(await response.json());
+		response = await request(
+			'app://api/client/openDir',
+			'POST',
+			JSON.stringify({ path: defaultPath }),
+		);
 	}
-	catch {
-		return undefined;
+	catch (error) {
+		throw new AutomaticBackupFolderPickerError(
+			`The native backup folder picker request failed: ${pickerErrorSummary(error)}`,
+			'request',
+		);
 	}
+	if (!response.ok) {
+		throw new AutomaticBackupFolderPickerError(
+			`The native backup folder picker returned HTTP ${response.status}.`,
+			'http-response',
+		);
+	}
+	let value: unknown;
+	try {
+		value = await response.json();
+	}
+	catch (error) {
+		throw new AutomaticBackupFolderPickerError(
+			`The native backup folder picker returned an unreadable response: ${pickerErrorSummary(error)}`,
+			'response-body',
+		);
+	}
+	return extractSelectedDirectory(value);
 }
 
-async function createDirectoryThroughClientApi(folderPath: string): Promise<boolean> {
-	try {
-		const response = await fetch('app://api/client/mkdirSync', {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ path: folderPath }),
-		});
-		if (!response.ok) {
-			return false;
-		}
-		const result: unknown = await response.json();
-		return isRecord(result) && result.status === true;
-	}
-	catch {
-		return false;
-	}
-}
-
-export function extractDocumentsPathFromClientConfig(value: unknown): string | undefined {
+export function extractSelectedDirectory(value: unknown): string | undefined {
 	if (!isRecord(value)) {
+		throw new AutomaticBackupFolderPickerError('The native backup folder picker returned invalid data.');
+	}
+	if (value.success === false) {
+		throw new AutomaticBackupFolderPickerError('The native backup folder picker rejected the request.');
+	}
+	const result = isRecord(value.result) ? value.result : value;
+	if (result.code === 0 && result.message === 'cancel') {
 		return undefined;
 	}
-	if (typeof value.documents === 'string') {
-		return value.documents;
+	if (result.code === 1 && typeof result.path === 'string' && result.path.trim()) {
+		return result.path;
 	}
-	return isRecord(value.result) && typeof value.result.documents === 'string'
-		? value.result.documents
-		: undefined;
+	throw new AutomaticBackupFolderPickerError('The native backup folder picker returned invalid data.');
 }
 
 function normalizeBackupPath(path: string): string {
@@ -416,4 +452,11 @@ function isAutomaticBackupFailure(value: unknown): value is AutomaticBackupFailu
 
 function isRecord(value: unknown): value is Record<string, any> {
 	return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function pickerErrorSummary(error: unknown): string {
+	const summary = error instanceof Error
+		? `${error.name}: ${error.message}`
+		: typeof error === 'string' ? error : 'unknown error';
+	return summary.replaceAll('\r', ' ').replaceAll('\n', ' ').slice(0, 300);
 }
