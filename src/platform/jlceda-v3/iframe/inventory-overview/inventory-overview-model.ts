@@ -37,6 +37,17 @@ export interface InventoryOverviewScrollContainer {
 	scrollTop: number;
 }
 
+export type InventoryOverviewPlacementBlocker = 'model-unavailable' | 'stock-depleted';
+
+export function inventoryOverviewPlacementBlocker(
+	item: Pick<InventoryOverviewItemSnapshot, 'hasEdaModel' | 'state'>,
+): InventoryOverviewPlacementBlocker | undefined {
+	if (item.state !== 'in-stock') {
+		return 'stock-depleted';
+	}
+	return item.hasEdaModel ? undefined : 'model-unavailable';
+}
+
 export interface InventoryOverviewFocusTarget {
 	classList: {
 		add: (...tokens: string[]) => void;
@@ -52,13 +63,13 @@ export type InventoryOverviewFocusScheduler = (callback: () => void, delay: numb
 export const INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY = 'jlceda-inventory.overview-columns.v1';
 export const INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS = [
 	'number',
-	'package',
-	'category',
 	'quantity',
-	'minimum-quantity',
-	'replenishment',
-	'location',
+	'package',
 	'model',
+	'location',
+	'category',
+	'replenishment',
+	'minimum-quantity',
 	'updated',
 ] as const;
 

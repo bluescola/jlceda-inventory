@@ -48,6 +48,7 @@ export interface InventoryOverviewViewState {
 
 export type InventoryOverviewAction
 	= | { type: 'view-item'; item: InventoryOverviewRevisionRef }
+		| { type: 'place-item'; item: InventoryOverviewRevisionRef }
 		| { type: 'edit-item'; item: InventoryOverviewRevisionRef }
 		| { type: 'update-item'; item: InventoryOverviewRevisionRef; draft: InventoryItemEditDraft; categoryId?: string }
 		| { type: 'merge-items'; source: InventoryOverviewRevisionRef; target: InventoryOverviewRevisionRef; matchToken: string; categoryId?: string }

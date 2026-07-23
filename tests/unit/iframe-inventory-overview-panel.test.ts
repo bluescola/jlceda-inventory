@@ -173,6 +173,9 @@ describe('iframe inventory overview protocol', () => {
 			}],
 			categories: [{ id: 'root' }, { id: 'child', parentId: 'root' }],
 		});
+		expect(request.items[0]).not.toHaveProperty('edaModelReference');
+		expect(request.items[0]).not.toHaveProperty('deviceUuid');
+		expect(request.items[0]).not.toHaveProperty('libraryUuid');
 		expect(request.labels.search).toBe('inventoryOverview.search');
 		expect(request.labels.systemCategories).toBe('inventoryOverview.systemCategories');
 		expect(request.labels.userCategories).toBe('inventoryOverview.userCategories');
@@ -185,6 +188,9 @@ describe('iframe inventory overview protocol', () => {
 		expect(request.labels.columnSettings).toBe('inventoryOverview.columnSettings');
 		expect(request.labels.restoreDefaultColumns).toBe('inventoryOverview.restoreDefaultColumns');
 		expect(request.labels.openDatasheet).toBe('inventoryItem.openDatasheet');
+		expect(request.labels.placeItem).toBe('place.action');
+		expect(request.labels.placeUnavailableModel).toBe('place.modelUnavailable');
+		expect(request.labels.placeUnavailableStock).toBe('place.depleted');
 		expect(parseIFrameInventoryOverviewRequest({ ...request, protocolVersion: 1 })).toBeUndefined();
 		expect(parseIFrameInventoryOverviewRequest({
 			...request,
@@ -236,6 +242,17 @@ describe('iframe inventory overview protocol', () => {
 				},
 			},
 		}, 'request-1')).toMatchObject({ operation: { intent: { type: 'open-datasheet' } } });
+		expect(parseIFrameInventoryOverviewResult({
+			...valid,
+			operation: {
+				operationId: 'operation-place-item',
+				intent: {
+					type: 'place-item',
+					item: { id: 'item-1', expectedRevision: 4 },
+					viewState: initialState,
+				},
+			},
+		}, 'request-1')).toMatchObject({ operation: { intent: { type: 'place-item' } } });
 		expect(parseIFrameInventoryOverviewResult({
 			...valid,
 			operation: {
@@ -335,6 +352,8 @@ describe('inventory overview category manager markup', () => {
 
 	it('renders an icon-triggered column menu and column markers without making the name optional', () => {
 		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+		const header = html.slice(html.indexOf('<thead>'), html.indexOf('</thead>'));
+		const businessColumnIds = [...header.matchAll(/<th id="column-([^"]+)"/g)].map(match => match[1]);
 
 		expect(html).toMatch(/id="column-settings"[^>]+class="icon-button/);
 		expect(html).toContain('id="column-settings-menu"');
@@ -342,6 +361,46 @@ describe('inventory overview category manager markup', () => {
 		expect(html).toContain('data-inventory-column="quantity"');
 		expect(html).toContain('data-inventory-column="replenishment"');
 		expect(html).toMatch(/<th id="column-name"><\/th>/);
+		expect(businessColumnIds).toEqual([
+			'name',
+			'actions',
+			'number',
+			'quantity',
+			'package',
+			'model',
+			'location',
+			'category',
+			'replenishment',
+			'minimum-quantity',
+			'updated',
+		]);
+	});
+
+	it('keeps row cells aligned with the operational header order', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+		const renderRows = source.slice(source.indexOf('function renderRows('), source.indexOf('function renderPagination('));
+		const rowAppend = renderRows.slice(renderRows.indexOf('\t\trow.append('), renderRows.indexOf('\n\t\t);'));
+		const markers = [
+			'nameCell',
+			'actionCell(item',
+			'\'number\'',
+			'\'quantity\'',
+			'\'package\'',
+			'\'model\'',
+			'\'location\'',
+			'\'category\'',
+			'\'replenishment\'',
+			'\'minimum-quantity\'',
+			'\'updated\'',
+		];
+
+		let previousIndex = -1;
+		for (const marker of markers) {
+			const markerIndex = rowAppend.indexOf(marker);
+			expect(markerIndex, `${marker} should be present after the preceding cell`).toBeGreaterThan(previousIndex);
+			previousIndex = markerIndex;
+		}
+		expect(source).toContain('cell.className = \'actions-column\'');
 	});
 });
 

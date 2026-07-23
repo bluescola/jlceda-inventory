@@ -18,7 +18,7 @@ import type { ParseLcscPackageCodeResult } from '../../../features/package-scan/
 import type { ProcurementCsvLabels } from '../../../features/project-planning/application/export-procurement-csv';
 import type { EdaFileClient, PickedOrderFile } from '../eda/file-client';
 import type { Translate } from '../eda/i18n-client';
-import type { EdaPlacementClient } from '../eda/placement-client';
+import type { EdaPlacementClient, EdaPlacementResult } from '../eda/placement-client';
 import type { AutomaticBackupFailure, AutomaticInventoryBackup } from '../persistence/automatic-inventory-backup';
 import type { BomDiffPanel } from './bom-diff-panel';
 import type { BomMappingPanel } from './bom-mapping-panel';
@@ -53,7 +53,7 @@ import { analyzeProjectDemand, createProcurementSuggestions } from '../../../fea
 import { createProjectSnapshot } from '../../../features/project-planning/application/create-project-snapshot';
 import { diffProjectSnapshots } from '../../../features/project-planning/application/diff-project-snapshots';
 import { createProcurementCsv } from '../../../features/project-planning/application/export-procurement-csv';
-import { InvalidAutomaticBackupFolderError } from '../persistence/automatic-inventory-backup';
+import { AutomaticBackupFolderPickerError, InvalidAutomaticBackupFolderError } from '../persistence/automatic-inventory-backup';
 
 const ORDER_IMPORT_MODEL_CONCURRENCY = 4;
 
@@ -152,6 +152,7 @@ export class NativeInventoryController {
 				document.categories,
 				pendingModelMatches,
 				pendingDuplicateMatches,
+				trace,
 			);
 			if (result.status === 'model-match'
 				|| result.status === 'duplicate-match'
@@ -1179,20 +1180,20 @@ export class NativeInventoryController {
 				return;
 			}
 			const settings = this.automaticBackup.getSettings();
-			let action: 'disable' | 'enable' | 'test' | 'use-default';
+			let action: 'choose-folder' | 'disable' | 'enable' | 'test';
 			if (!settings.path) {
-				action = 'use-default';
+				action = 'choose-folder';
 			}
 			else {
 				const options: SelectOption[] = settings.enabled
 					? [
-							{ value: 'use-default', label: this.t('autoBackup.useDefault') },
+							{ value: 'choose-folder', label: this.t('autoBackup.chooseFolder') },
 							{ value: 'test', label: this.t('autoBackup.test') },
 							{ value: 'disable', label: this.t('autoBackup.disable') },
 						]
 					: [
 							{ value: 'enable', label: this.t('autoBackup.reenable') },
-							{ value: 'use-default', label: this.t('autoBackup.useDefault') },
+							{ value: 'choose-folder', label: this.t('autoBackup.chooseFolder') },
 							{ value: 'test', label: this.t('autoBackup.test') },
 						];
 				const selectedAction = await this.tracedSelect(
@@ -1214,8 +1215,8 @@ export class NativeInventoryController {
 				return;
 			}
 			let path = settings.path;
-			if (action === 'use-default') {
-				path = await this.prepareDefaultAutomaticBackupPath(trace);
+			if (action === 'choose-folder') {
+				path = await this.prepareSelectedAutomaticBackupPath(trace);
 			}
 			if (!path) {
 				return;
@@ -1227,7 +1228,7 @@ export class NativeInventoryController {
 				this.dialog.info(this.t(automaticBackupFailureKey(failure)), this.t('autoBackup.title'));
 				return;
 			}
-			if (action === 'use-default' || action === 'enable') {
+			if (action === 'choose-folder' || action === 'enable') {
 				await this.automaticBackup.configure(path);
 				this.dialog.info(this.t('autoBackup.enabledMessage', path), this.t('autoBackup.title'));
 				return;
@@ -1236,29 +1237,32 @@ export class NativeInventoryController {
 		}, trace);
 	}
 
-	private async prepareDefaultAutomaticBackupPath(trace: DiagnosticTrace): Promise<string | undefined> {
+	private async prepareSelectedAutomaticBackupPath(trace: DiagnosticTrace): Promise<string | undefined> {
 		let folder: string | undefined;
 		try {
-			folder = await trace.waitFor('auto-backup.default-folder', () => this.automaticBackup!.getDefaultFolder());
+			folder = await trace.waitFor('auto-backup.folder-picker', () => this.automaticBackup!.selectFolder());
 		}
 		catch (error) {
-			const invalidHostPath = error instanceof InvalidAutomaticBackupFolderError;
-			trace.warn('auto-backup.default-folder-unavailable', {
+			const pickerFailure = error instanceof AutomaticBackupFolderPickerError
+				|| error instanceof InvalidAutomaticBackupFolderError;
+			trace.warn('auto-backup.folder-picker-failed', {
 				error: errorMessage(error),
-				reason: invalidHostPath ? 'invalid-host-path' : 'host-api-error',
+				reason: pickerFailure ? 'picker-error' : 'host-api-error',
+				stage: error instanceof AutomaticBackupFolderPickerError
+					? error.stage
+					: error instanceof InvalidAutomaticBackupFolderError ? 'path-validation' : 'permission-probe',
 			});
 			this.dialog.info(
-				this.t(invalidHostPath ? 'autoBackup.invalidDefaultFolder' : 'autoBackup.unsupported'),
+				this.t(pickerFailure ? 'autoBackup.folderPickerFailed' : 'autoBackup.unsupported'),
 				this.t('autoBackup.title'),
 			);
 			return undefined;
 		}
 		if (!folder) {
-			trace.warn('auto-backup.default-folder-unavailable', { reason: 'api-unavailable' });
-			this.dialog.info(this.t('autoBackup.unsupported'), this.t('autoBackup.title'));
+			trace.info('auto-backup.folder-picker.cancelled');
 			return undefined;
 		}
-		trace.info('auto-backup.default-folder.resolved', automaticBackupPathDiagnostics(folder));
+		trace.info('auto-backup.folder.selected', automaticBackupPathDiagnostics(folder));
 		try {
 			const path = await trace.waitFor(
 				'auto-backup.prepare-path',
@@ -1361,6 +1365,7 @@ export class NativeInventoryController {
 					validated.document,
 					current.revision,
 				));
+				trace.info('backup-restore.completed', { revision: restored.revision });
 				this.dialog.info(
 					this.t('backup.restore.completed', restored.items.length, restored.revision),
 					this.t('backup.restore.title'),
@@ -1792,23 +1797,8 @@ export class NativeInventoryController {
 	}
 
 	public placeFromInventory(): Promise<void> {
-		return this.execute(async () => {
-			const items = (await this.inventory.list(false)).filter(item => item.edaModelReference);
-			if (items.length === 0) {
-				this.dialog.info(this.t('place.empty'), this.t('place.title'));
-				return;
-			}
-			const selectedId = await this.dialog.select(
-				items.map(item => ({ value: item.id, label: this.formatItemLine(item) })),
-				this.t('place.title'),
-			);
-			const selected = selectedId ? items.find(item => item.id === selectedId) : undefined;
-			if (!selected?.edaModelReference) {
-				return;
-			}
-			const placed = await this.placement.placeWithMouse(selected.edaModelReference);
-			this.dialog.info(this.t(placed ? 'place.ready' : 'place.failed'), this.t('place.title'));
-		});
+		const trace = this.diagnostics.start('place-from-inventory', false);
+		return this.execute(() => this.runInventoryOverview(createPlacementOverviewState(), trace), trace);
 	}
 
 	public about(): void {
@@ -1821,6 +1811,7 @@ export class NativeInventoryController {
 		categories: readonly InventoryCategory[],
 		pendingModelMatches: Map<string, PendingOverviewModelMatch>,
 		pendingDuplicateMatches: Map<string, PendingOverviewDuplicateMatch>,
+		trace?: DiagnosticTrace,
 	): Promise<InventoryOverviewOperationResult> {
 		try {
 			const item = 'item' in intent ? items.find(candidate => candidate.id === intent.item.id) : undefined;
@@ -1832,6 +1823,8 @@ export class NativeInventoryController {
 				case 'view-item':
 					await this.handleInventoryAction(item, 'details', locationOptions);
 					break;
+				case 'place-item':
+					return this.placeInventoryItem(item!, trace);
 				case 'edit-item':
 					await this.handleInventoryAction(item, 'edit', locationOptions);
 					break;
@@ -1934,6 +1927,42 @@ export class NativeInventoryController {
 			}
 			return { status: 'failed', message: this.t('error.generic', errorMessage(error)) };
 		}
+	}
+
+	private async placeInventoryItem(
+		item: InventoryItem,
+		trace?: DiagnosticTrace,
+	): Promise<InventoryOverviewOperationResult> {
+		const latest = await this.inventory.get(item.id);
+		assertOverviewItemRevision(latest, item.revision);
+		if (latest.state !== 'in-stock') {
+			return { status: 'failed', message: this.t('place.depleted') };
+		}
+		const reference = latest.edaModelReference;
+		if (!reference) {
+			return { status: 'failed', message: this.t('place.modelUnavailable') };
+		}
+
+		let result: EdaPlacementResult;
+		try {
+			const operation = () => this.placement.placeWithMouse(reference);
+			result = trace ? await trace.waitFor('inventory-overview.place', operation) : await operation();
+		}
+		catch (error) {
+			trace?.warn('inventory-overview.place.failed', { errorName: errorName(error) });
+			return { status: 'failed', message: this.t('place.failed') };
+		}
+		trace?.info('inventory-overview.place.result', { status: result });
+		if (result === 'ready') {
+			return { status: 'succeeded', message: this.t('place.ready') };
+		}
+		if (result === 'not-schematic') {
+			return { status: 'failed', message: this.t('place.schematicRequired') };
+		}
+		if (result === 'unsupported') {
+			return { status: 'failed', message: this.t('place.unsupported') };
+		}
+		return { status: 'failed', message: this.t('place.failed') };
 	}
 
 	private async updateOverviewItem(
@@ -2750,6 +2779,10 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function errorName(error: unknown): string {
+	return error instanceof Error ? error.name : typeof error;
+}
+
 function isCancelledFileSave(error: unknown): boolean {
 	return error instanceof Error && error.name === 'AbortError';
 }
@@ -2873,6 +2906,21 @@ function createOverviewSearchState(query: string, focusItemId?: string): Invento
 		stockFilter: 'all',
 		modelFilter: 'all',
 		sort: 'relevance',
+		page: 1,
+		pageSize: 50,
+	};
+}
+
+function createPlacementOverviewState(): InventoryOverviewViewState {
+	return {
+		query: '',
+		searchScope: 'all',
+		categoryId: 'all',
+		stockFilter: 'in-stock',
+		modelFilter: 'available',
+		replenishmentFilter: 'all',
+		favoriteFilter: 'all',
+		sort: 'category',
 		page: 1,
 		pageSize: 50,
 	};

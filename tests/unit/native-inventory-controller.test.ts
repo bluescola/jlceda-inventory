@@ -25,7 +25,7 @@ import type { ProductDetailsDraft, ProductDetailsForm } from '../../src/platform
 import type { ProjectPlanningPanel } from '../../src/platform/jlceda-v3/presentation/project-planning-panel';
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeInventoryItem } from '../../src/features/inventory/domain/inventory-item';
-import { InvalidAutomaticBackupFolderError } from '../../src/platform/jlceda-v3/persistence/automatic-inventory-backup';
+import { AutomaticBackupFolderPickerError } from '../../src/platform/jlceda-v3/persistence/automatic-inventory-backup';
 import { NativeInventoryController } from '../../src/platform/jlceda-v3/presentation/native-inventory-controller';
 
 const edaModel: EdaModel = {
@@ -277,6 +277,9 @@ function createController(
 	const commonLibrary = {
 		copy: vi.fn(),
 	};
+	const placement = {
+		placeWithMouse: vi.fn().mockResolvedValue('ready'),
+	};
 	const externalLinkNavigator = externalLinks ?? { open: vi.fn().mockReturnValue(true) };
 	const inventoryCreatePanel = {
 		open: vi.fn(openCreatePanel ?? (async () => ({ status: 'cancelled' as const }))),
@@ -313,7 +316,7 @@ function createController(
 			availableSources: vi.fn().mockResolvedValue([]),
 			read: vi.fn(),
 		} as EdaLibraryCategories,
-		{} as EdaPlacementClient,
+		placement as unknown as EdaPlacementClient,
 		dialog as unknown as NativeDialog,
 		diagnostics,
 		productDetailsForm,
@@ -334,13 +337,13 @@ function createController(
 		projectPlanningPanel,
 		externalLinkNavigator,
 	);
-	return { add, commonLibrary, controller, createReference, designStockCheckPanel, diagnostics, dialog, externalLinkNavigator, files, inventory, inventoryCreatePanel, inventoryItemPanel, inventoryOverviewPanel, openSearch, orderImportPanel, productDetailsForm, searchModels, trace };
+	return { add, commonLibrary, controller, createReference, designStockCheckPanel, diagnostics, dialog, externalLinkNavigator, files, inventory, inventoryCreatePanel, inventoryItemPanel, inventoryOverviewPanel, openSearch, orderImportPanel, placement, productDetailsForm, searchModels, trace };
 }
 
 function createAutomaticBackup(settings: { enabled: boolean; path?: string } = { enabled: false }) {
 	return {
 		getSettings: vi.fn(() => settings),
-		getDefaultFolder: vi.fn(async () => 'C:\\Users\\tester\\Documents\\JLCEDA-Inventory'),
+		selectFolder: vi.fn(async () => 'D:\\Inventory'),
 		prepareBackupPath: vi.fn(async folder => `${folder}\\jlceda-inventory-latest.json`),
 		configure: vi.fn(async path => ({ ...settings, enabled: true, path })),
 		disable: vi.fn(async () => ({ ...settings, enabled: false })),
@@ -588,6 +591,134 @@ describe('nativeInventoryController.locateSelectedInventory', () => {
 			context.trace,
 		);
 		expect(context.inventoryOverviewPanel.open).not.toHaveBeenCalled();
+	});
+});
+
+describe('nativeInventoryController.placeFromInventory', () => {
+	it('opens the searchable categorized overview and places the selected row without a native selector', async () => {
+		const item = {
+			...createInventoryItem(),
+			edaModelReference: edaModel.reference,
+			edaModelStatus: 'available' as const,
+		};
+		const context = createController(vi.fn(), [], []);
+		context.inventory.list.mockResolvedValue([item]);
+		context.inventory.get.mockResolvedValue(item);
+		let operationResult: unknown;
+		context.inventoryOverviewPanel.open.mockImplementation(async (input, onOperation) => {
+			expect(input).toMatchObject({
+				items: [item],
+				initialState: {
+					categoryId: 'all',
+					modelFilter: 'available',
+					searchScope: 'all',
+					stockFilter: 'in-stock',
+				},
+			});
+			operationResult = await onOperation({
+				operationId: 'place-item',
+				intent: {
+					type: 'place-item',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: overviewViewState,
+				},
+			});
+		});
+
+		await context.controller.placeFromInventory();
+
+		expect(context.diagnostics.start).toHaveBeenCalledWith('place-from-inventory', false);
+		expect(context.dialog.select).not.toHaveBeenCalled();
+		expect(context.placement.placeWithMouse).toHaveBeenCalledWith(edaModel.reference);
+		expect(operationResult).toMatchObject({ status: 'succeeded', message: 'place.ready' });
+		expect(context.inventory.updateItem).not.toHaveBeenCalled();
+		expect(context.inventory.remove).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		['depleted inventory', { state: 'depleted' as const }, 'place.depleted'],
+		['missing model', { edaModelReference: undefined, edaModelStatus: 'missing' as const }, 'place.modelUnavailable'],
+	])('revalidates and rejects %s before calling the placement API', async (_name, latestPatch, message) => {
+		const item = {
+			...createInventoryItem(),
+			edaModelReference: edaModel.reference,
+			edaModelStatus: 'available' as const,
+		};
+		const latest = { ...item, ...latestPatch };
+		const context = createController(vi.fn(), [], []);
+		context.inventory.list.mockResolvedValue([item]);
+		context.inventory.get.mockResolvedValue(latest);
+		let operationResult: unknown;
+		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
+			operationResult = await onOperation({
+				operationId: 'place-item',
+				intent: {
+					type: 'place-item',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: overviewViewState,
+				},
+			});
+		});
+
+		await context.controller.placeFromInventory();
+
+		expect(operationResult).toEqual({ status: 'failed', message });
+		expect(context.placement.placeWithMouse).not.toHaveBeenCalled();
+	});
+
+	it('keeps the overview visible with a specific failure when no schematic is active', async () => {
+		const item = {
+			...createInventoryItem(),
+			edaModelReference: edaModel.reference,
+			edaModelStatus: 'available' as const,
+		};
+		const context = createController(vi.fn(), [], []);
+		context.inventory.list.mockResolvedValue([item]);
+		context.inventory.get.mockResolvedValue(item);
+		context.placement.placeWithMouse.mockResolvedValue('not-schematic');
+		let operationResult: unknown;
+		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
+			operationResult = await onOperation({
+				operationId: 'place-item',
+				intent: {
+					type: 'place-item',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: overviewViewState,
+				},
+			});
+		});
+
+		await context.controller.placeFromInventory();
+
+		expect(operationResult).toEqual({ status: 'failed', message: 'place.schematicRequired' });
+	});
+
+	it('reports a placement API exception without exposing host details in the UI', async () => {
+		const item = {
+			...createInventoryItem(),
+			edaModelReference: edaModel.reference,
+			edaModelStatus: 'available' as const,
+		};
+		const context = createController(vi.fn(), [], []);
+		context.inventory.list.mockResolvedValue([item]);
+		context.inventory.get.mockResolvedValue(item);
+		context.placement.placeWithMouse.mockRejectedValue(new TypeError('host internals'));
+		let operationResult: unknown;
+		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
+			operationResult = await onOperation({
+				operationId: 'place-item',
+				intent: {
+					type: 'place-item',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: overviewViewState,
+				},
+			});
+		});
+
+		await context.controller.placeFromInventory();
+
+		expect(operationResult).toEqual({ status: 'failed', message: 'place.failed' });
+		expect(context.trace.warn).toHaveBeenCalledWith('inventory-overview.place.failed', { errorName: 'TypeError' });
 	});
 });
 
@@ -2210,6 +2341,7 @@ describe('nativeInventoryController export status', () => {
 			expect.objectContaining({ schemaVersion: 9, revision: 4 }),
 			1,
 		);
+		expect(context.trace.info).toHaveBeenCalledWith('backup-restore.completed', { revision: 2 });
 		expect(context.dialog.info).toHaveBeenCalledWith('backup.restore.completed', 'backup.restore.title');
 	});
 
@@ -2250,7 +2382,7 @@ describe('nativeInventoryController export status', () => {
 		expect(context.inventory.restoreDocument).toHaveBeenCalledOnce();
 	});
 
-	it('creates the fixed JSON in the default Documents folder without any setup prompt', async () => {
+	it('opens the native folder picker and creates the fixed JSON without setup prompts', async () => {
 		const automaticBackup = createAutomaticBackup();
 		const context = createController(
 			vi.fn(),
@@ -2271,28 +2403,29 @@ describe('nativeInventoryController export status', () => {
 
 		expect(context.dialog.select).not.toHaveBeenCalled();
 		expect(context.dialog.input).not.toHaveBeenCalled();
-		expect(automaticBackup.prepareBackupPath).toHaveBeenCalledWith('C:\\Users\\tester\\Documents\\JLCEDA-Inventory');
+		expect(automaticBackup.selectFolder).toHaveBeenCalledOnce();
+		expect(automaticBackup.prepareBackupPath).toHaveBeenCalledWith('D:\\Inventory');
 		expect(automaticBackup.test).toHaveBeenCalledWith(
 			expect.objectContaining({ schemaVersion: 9 }),
-			'C:\\Users\\tester\\Documents\\JLCEDA-Inventory\\jlceda-inventory-latest.json',
+			'D:\\Inventory\\jlceda-inventory-latest.json',
 		);
-		expect(automaticBackup.configure).toHaveBeenCalledWith('C:\\Users\\tester\\Documents\\JLCEDA-Inventory\\jlceda-inventory-latest.json');
+		expect(automaticBackup.configure).toHaveBeenCalledWith('D:\\Inventory\\jlceda-inventory-latest.json');
 		expect(automaticBackup.test.mock.invocationCallOrder[0]).toBeLessThan(automaticBackup.configure.mock.invocationCallOrder[0]);
-		expect(context.trace.info).toHaveBeenCalledWith('auto-backup.default-folder.resolved', {
+		expect(context.trace.info).toHaveBeenCalledWith('auto-backup.folder.selected', {
 			pathKind: 'windows-drive',
-			pathLength: 'C:\\Users\\tester\\Documents\\JLCEDA-Inventory'.length,
+			pathLength: 'D:\\Inventory'.length,
 		});
 		expect(context.trace.info).toHaveBeenCalledWith('auto-backup.path.prepared', {
 			pathKind: 'windows-drive',
-			pathLength: 'C:\\Users\\tester\\Documents\\JLCEDA-Inventory\\jlceda-inventory-latest.json'.length,
+			pathLength: 'D:\\Inventory\\jlceda-inventory-latest.json'.length,
 		});
 		expect(context.dialog.info).toHaveBeenCalledWith('autoBackup.enabledMessage', 'autoBackup.title');
 		expect(context.dialog.confirm).not.toHaveBeenCalled();
 	});
 
-	it('leaves automatic backup unchanged when the host cannot provide a default folder', async () => {
+	it('leaves automatic backup unchanged when the native folder picker is cancelled', async () => {
 		const automaticBackup = createAutomaticBackup();
-		automaticBackup.getDefaultFolder.mockResolvedValueOnce(undefined);
+		automaticBackup.selectFolder.mockResolvedValueOnce(undefined);
 		const context = createController(
 			vi.fn(),
 			[],
@@ -2314,14 +2447,15 @@ describe('nativeInventoryController export status', () => {
 		expect(automaticBackup.test).not.toHaveBeenCalled();
 		expect(automaticBackup.configure).not.toHaveBeenCalled();
 		expect(context.inventory.exportDocument).not.toHaveBeenCalled();
-		expect(context.dialog.info).toHaveBeenCalledWith('autoBackup.unsupported', 'autoBackup.title');
+		expect(context.dialog.info).not.toHaveBeenCalled();
+		expect(context.trace.info).toHaveBeenCalledWith('auto-backup.folder-picker.cancelled');
 		expect(context.dialog.confirm).not.toHaveBeenCalled();
 	});
 
-	it('reports an invalid host Documents path separately from a missing desktop API', async () => {
+	it('reports an unavailable native folder picker separately from a missing desktop API', async () => {
 		const automaticBackup = createAutomaticBackup();
-		automaticBackup.getDefaultFolder.mockRejectedValueOnce(
-			new InvalidAutomaticBackupFolderError('EDA returned an unusable automatic backup folder path.'),
+		automaticBackup.selectFolder.mockRejectedValueOnce(
+			new AutomaticBackupFolderPickerError('The native backup folder picker is unavailable.'),
 		);
 		const context = createController(
 			vi.fn(),
@@ -2341,9 +2475,38 @@ describe('nativeInventoryController export status', () => {
 		await context.controller.configureAutomaticBackup();
 
 		expect(automaticBackup.prepareBackupPath).not.toHaveBeenCalled();
-		expect(context.dialog.info).toHaveBeenCalledWith('autoBackup.invalidDefaultFolder', 'autoBackup.title');
-		expect(context.trace.warn).toHaveBeenCalledWith('auto-backup.default-folder-unavailable', expect.objectContaining({
-			reason: 'invalid-host-path',
+		expect(context.dialog.info).toHaveBeenCalledWith('autoBackup.folderPickerFailed', 'autoBackup.title');
+		expect(context.trace.warn).toHaveBeenCalledWith('auto-backup.folder-picker-failed', expect.objectContaining({
+			reason: 'picker-error',
+			stage: 'host-result',
+		}));
+	});
+
+	it('reports a desktop or external-interaction failure before opening the native picker', async () => {
+		const automaticBackup = createAutomaticBackup();
+		automaticBackup.selectFolder.mockRejectedValueOnce(new Error('external interaction is unavailable'));
+		const context = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			automaticBackup,
+		);
+
+		await context.controller.configureAutomaticBackup();
+
+		expect(automaticBackup.prepareBackupPath).not.toHaveBeenCalled();
+		expect(context.dialog.info).toHaveBeenCalledWith('autoBackup.unsupported', 'autoBackup.title');
+		expect(context.trace.warn).toHaveBeenCalledWith('auto-backup.folder-picker-failed', expect.objectContaining({
+			reason: 'host-api-error',
+			stage: 'permission-probe',
 		}));
 	});
 
@@ -2373,7 +2536,7 @@ describe('nativeInventoryController export status', () => {
 		expect(context.dialog.confirm).not.toHaveBeenCalled();
 	});
 
-	it('moves an existing automatic backup setting to the default location without input', async () => {
+	it('moves an existing automatic backup setting to a newly selected folder without input', async () => {
 		const automaticBackup = createAutomaticBackup({
 			enabled: true,
 			path: 'C:\\Old\\jlceda-inventory-latest.json',
@@ -2381,7 +2544,7 @@ describe('nativeInventoryController export status', () => {
 		const context = createController(
 			vi.fn(),
 			[],
-			['use-default'],
+			['choose-folder'],
 			undefined,
 			undefined,
 			undefined,
@@ -2396,8 +2559,8 @@ describe('nativeInventoryController export status', () => {
 		await context.controller.configureAutomaticBackup();
 
 		expect(context.dialog.input).not.toHaveBeenCalled();
-		expect(automaticBackup.prepareBackupPath).toHaveBeenCalledWith('C:\\Users\\tester\\Documents\\JLCEDA-Inventory');
-		expect(automaticBackup.configure).toHaveBeenCalledWith('C:\\Users\\tester\\Documents\\JLCEDA-Inventory\\jlceda-inventory-latest.json');
+		expect(automaticBackup.prepareBackupPath).toHaveBeenCalledWith('D:\\Inventory');
+		expect(automaticBackup.configure).toHaveBeenCalledWith('D:\\Inventory\\jlceda-inventory-latest.json');
 		expect(context.dialog.confirm).not.toHaveBeenCalled();
 	});
 

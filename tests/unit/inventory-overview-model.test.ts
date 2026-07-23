@@ -11,6 +11,7 @@ import {
 	defaultInventoryOverviewColumnPreferences,
 	filterAndSortInventory,
 	INVENTORY_OVERVIEW_COLUMN_PREFERENCE_KEY,
+	INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS,
 	inventoryCategoryCounts,
 	inventoryItemsForCategoryDrop,
 	inventoryItemsForDrag,
@@ -18,6 +19,7 @@ import {
 	inventoryOverviewLcscPartNumber,
 	inventoryOverviewLocationLabel,
 	inventoryOverviewPackageLabel,
+	inventoryOverviewPlacementBlocker,
 	loadInventoryOverviewColumnPreferences,
 	paginateInventory,
 	parseInventoryOverviewColumnPreferences,
@@ -62,6 +64,26 @@ const defaultState: InventoryOverviewViewState = {
 };
 
 describe('inventory overview model', () => {
+	it('orders configurable columns by operational importance', () => {
+		expect(INVENTORY_OVERVIEW_CONFIGURABLE_COLUMNS).toEqual([
+			'number',
+			'quantity',
+			'package',
+			'model',
+			'location',
+			'category',
+			'replenishment',
+			'minimum-quantity',
+			'updated',
+		]);
+	});
+
+	it('allows placement only for in-stock rows with an attached EDA model', () => {
+		expect(inventoryOverviewPlacementBlocker({ state: 'in-stock', hasEdaModel: true })).toBeUndefined();
+		expect(inventoryOverviewPlacementBlocker({ state: 'depleted', hasEdaModel: true })).toBe('stock-depleted');
+		expect(inventoryOverviewPlacementBlocker({ state: 'in-stock', hasEdaModel: false })).toBe('model-unavailable');
+	});
+
 	it('prefers structured storage while retaining the legacy free-text location', () => {
 		expect(inventoryOverviewLocationLabel({
 			location: 'Legacy shelf',
@@ -89,7 +111,7 @@ describe('inventory overview model', () => {
 		expect(canHideInventoryOverviewColumn(preferences, 'replenishment')).toBe(false);
 		expect(setInventoryOverviewColumnVisibility(preferences, 'replenishment', false)).toEqual(preferences);
 		expect(setInventoryOverviewColumnVisibility(preferences, 'location', true).visibleColumns)
-			.toEqual(['number', 'replenishment', 'location']);
+			.toEqual(['number', 'location', 'replenishment']);
 	});
 
 	it('degrades local column preference storage failures without affecting the inventory', () => {

@@ -168,6 +168,9 @@ const LABEL_KEYS = [
 	'quantityEstimated',
 	'emptyValue',
 	'viewItem',
+	'placeItem',
+	'placeUnavailableModel',
+	'placeUnavailableStock',
 	'editItem',
 	'deleteItem',
 	'openMarketplace',
@@ -450,6 +453,7 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 		return { ...intent, categories: intent.categories.map(category => ({ ...category })), viewState: { ...intent.viewState } };
 	}
 	if (intent.type === 'view-item'
+		|| intent.type === 'place-item'
 		|| intent.type === 'edit-item'
 		|| intent.type === 'open-marketplace'
 		|| intent.type === 'open-datasheet'
@@ -526,6 +530,7 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 		return false;
 	}
 	if ((value.type === 'view-item'
+		|| value.type === 'place-item'
 		|| value.type === 'edit-item'
 		|| value.type === 'open-marketplace'
 		|| value.type === 'open-datasheet'

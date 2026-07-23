@@ -40,6 +40,7 @@ import {
 	inventoryOverviewLcscPartNumber,
 	inventoryOverviewLocationLabel,
 	inventoryOverviewPackageLabel,
+	inventoryOverviewPlacementBlocker,
 	loadInventoryOverviewColumnPreferences,
 	normalizeOverviewViewState,
 	orderedCategorySiblings,
@@ -282,11 +283,22 @@ function renderPanel(
 			requestId: request.requestId,
 			status: 'operation',
 			operation: { operationId, intent },
-		}).then((written) => {
+		}).then(async (written) => {
 			if (!written && pendingOperation?.id === operationId) {
 				pendingOperation = undefined;
 				showOperationDialog(labels.title, labels.connectionError);
 				elements.operationCancel.hidden = false;
+				return;
+			}
+			if (written
+				&& action.type === 'place-item'
+				&& typeof eda.sys_IFrame?.hideIFrame === 'function') {
+				try {
+					await eda.sys_IFrame.hideIFrame(INVENTORY_OVERVIEW_IFRAME_ID);
+				}
+				catch {
+					// The successful response retries hiding before the pointer is used.
+				}
 			}
 		});
 	};
@@ -685,6 +697,9 @@ function renderPanel(
 			return;
 		}
 		if (result.status === 'failed' || result.status === 'model-missing') {
+			if (active.intent.type === 'place-item' && typeof eda.sys_IFrame?.showIFrame === 'function') {
+				void eda.sys_IFrame.showIFrame(INVENTORY_OVERVIEW_IFRAME_ID).catch(() => undefined);
+			}
 			if (active.onFailed) {
 				closeOperationDialog(false);
 				active.onFailed(result.message);
@@ -700,6 +715,13 @@ function renderPanel(
 					closeOperationDialog(false);
 					dispatchIntent({ type: 'retry-model', item: retryItem });
 				};
+			}
+			return;
+		}
+		if (active.intent.type === 'place-item' && result.status === 'succeeded') {
+			closeOperationDialog(false);
+			if (typeof eda.sys_IFrame?.hideIFrame === 'function') {
+				void eda.sys_IFrame.hideIFrame(INVENTORY_OVERVIEW_IFRAME_ID).catch(() => undefined);
 			}
 			return;
 		}
@@ -1328,16 +1350,16 @@ function renderRows(
 		row.append(
 			selectCell,
 			nameCell,
-			textCell(item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId, labels.emptyValue, 'number'),
-			textCell(inventoryOverviewPackageLabel(item), labels.emptyValue, 'package'),
-			textCell(categories.get(item.categoryId ?? '') ?? labels.unclassified, undefined, 'category'),
-			statusCell(quantityLabel(item, labels), `stock-${item.state}`, 'quantity'),
-			textCell(item.minimumQuantity === undefined ? '' : String(item.minimumQuantity), labels.emptyValue, 'minimum-quantity'),
-			statusCell(replenishmentLabel(item, labels), `replenishment-${item.replenishmentStatus}`, 'replenishment'),
-			textCell(inventoryOverviewLocationLabel(item), labels.emptyValue, 'location'),
-			statusCell(modelLabel(item, labels), `model-${item.edaModelStatus}`, 'model'),
-			textCell(item.updatedAtLabel, labels.emptyValue, 'updated'),
 			actionCell(item, labels, finishIntent),
+			textCell(item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId, labels.emptyValue, 'number'),
+			statusCell(quantityLabel(item, labels), `stock-${item.state}`, 'quantity'),
+			textCell(inventoryOverviewPackageLabel(item), labels.emptyValue, 'package'),
+			statusCell(modelLabel(item, labels), `model-${item.edaModelStatus}`, 'model'),
+			textCell(inventoryOverviewLocationLabel(item), labels.emptyValue, 'location'),
+			textCell(categories.get(item.categoryId ?? '') ?? labels.unclassified, undefined, 'category'),
+			statusCell(replenishmentLabel(item, labels), `replenishment-${item.replenishmentStatus}`, 'replenishment'),
+			textCell(item.minimumQuantity === undefined ? '' : String(item.minimumQuantity), labels.emptyValue, 'minimum-quantity'),
+			textCell(item.updatedAtLabel, labels.emptyValue, 'updated'),
 		);
 		return row;
 	});
@@ -1545,8 +1567,19 @@ function actionCell(
 	finishIntent: (intent: InventoryOverviewAction) => void,
 ): HTMLTableCellElement {
 	const cell = document.createElement('td');
+	cell.className = 'actions-column';
 	const actions = document.createElement('div');
 	actions.className = 'row-actions';
+	const placementBlocker = inventoryOverviewPlacementBlocker(item);
+	actions.append(rowPlacementAction(
+		labels.placeItem,
+		placementBlocker === 'stock-depleted'
+			? labels.placeUnavailableStock
+			: placementBlocker === 'model-unavailable'
+				? labels.placeUnavailableModel
+				: undefined,
+		() => finishIntent({ type: 'place-item', item: { id: item.id, expectedRevision: item.revision } }),
+	));
 	actions.append(
 		rowAction(labels.viewItem, () => finishIntent({ type: 'view-item', item: { id: item.id, expectedRevision: item.revision } })),
 		rowAction(labels.editItem, () => finishIntent({ type: 'edit-item', item: { id: item.id, expectedRevision: item.revision } })),
@@ -1850,6 +1883,15 @@ function rowAction(label: string, action: () => void, danger = false): HTMLButto
 	return button;
 }
 
+function rowPlacementAction(label: string, blocker: string | undefined, action: () => void): HTMLButtonElement {
+	const button = rowAction(label, action);
+	button.classList.add('row-place-action');
+	button.disabled = blocker !== undefined;
+	button.title = blocker ?? label;
+	button.setAttribute('aria-label', blocker ? `${label}: ${blocker}` : label);
+	return button;
+}
+
 function rowIconAction(label: string, icon: string, action: () => void): HTMLButtonElement {
 	const button = document.createElement('button');
 	button.type = 'button';
@@ -1864,6 +1906,7 @@ function rowIconAction(label: string, icon: string, action: () => void): HTMLBut
 function actionTitle(action: InventoryOverviewAction, labels: InventoryOverviewLabels): string {
 	switch (action.type) {
 		case 'view-item': return labels.viewItem;
+		case 'place-item': return labels.placeItem;
 		case 'edit-item': return labels.editItem;
 		case 'update-item': return labels.editItem;
 		case 'merge-items': return labels.confirmMerge;
