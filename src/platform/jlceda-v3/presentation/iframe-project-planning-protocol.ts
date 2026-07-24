@@ -468,7 +468,7 @@ function isIntent(value: unknown): value is Record<string, unknown> & { type: st
 }
 
 function cloneIntent(intent: Record<string, unknown> & { type: string; viewState: ProjectPlanningViewState }): ProjectPlanningIntent {
-	return structuredClone(intent) as ProjectPlanningIntent;
+	return JSON.parse(JSON.stringify(intent)) as ProjectPlanningIntent;
 }
 
 function isSnapshotRef(value: unknown): boolean {

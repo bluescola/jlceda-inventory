@@ -35,6 +35,7 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 class FakeHost implements ProjectPlanningIFrameHost {
@@ -288,6 +289,43 @@ describe('iframe project planning protocol', () => {
 				viewState,
 			},
 		}, 'request-1')).toBeUndefined();
+	});
+
+	it('clones JSON-safe intents when structuredClone is unavailable', () => {
+		vi.stubGlobal('structuredClone', undefined);
+		const event = {
+			protocolVersion: PROJECT_PLANNING_PROTOCOL_VERSION,
+			requestId: 'request-1',
+			status: 'operation' as const,
+			operationId: 'operation-1',
+			intent: {
+				type: 'add-purchase' as const,
+				draft: {
+					lcscPartNumber: 'C1',
+					name: 'Resistor',
+					quantity: 10,
+					unitPriceMinor: 25,
+					currency: 'CNY',
+					purchasedAt: '2026-07-22',
+					projectSnapshotIds: ['snapshot-1'],
+				},
+				viewState: { ...viewState },
+			},
+		};
+
+		const parsed = parseIFrameProjectPlanningEvent(event, event.requestId);
+
+		expect(parsed).toEqual(event);
+		if (parsed?.status !== 'operation' || parsed.intent.type !== 'add-purchase') {
+			throw new Error('Expected a parsed add-purchase intent.');
+		}
+		event.intent.draft.projectSnapshotIds[0] = 'changed-after-parse';
+		expect(parsed.intent.draft.projectSnapshotIds).toEqual(['snapshot-1']);
+		expect(parseIFrameProjectPlanningEvent({
+			...event,
+			operationId: 'capture-current',
+			intent: { type: 'capture-current', viewState },
+		}, event.requestId)).toBeDefined();
 	});
 });
 
