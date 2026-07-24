@@ -6,26 +6,40 @@ import type { DiagnosticTrace } from '../../src/platform/jlceda-v3/presentation/
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAX_INVENTORY_DOCUMENT_ITEMS } from '../../src/features/inventory/application/inventory-document-limits';
 import {
+	EdaInventoryOverviewIFrameHost,
 	IFrameInventoryOverviewPanel,
 	InventoryOverviewPanelUnavailableError,
 } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-overview-panel';
 import {
+	createIFrameInventoryOverviewSnapshotUpdate,
 	INVENTORY_OVERVIEW_PROTOCOL_VERSION,
 	INVENTORY_OVERVIEW_REQUEST_KEY,
 	INVENTORY_OVERVIEW_RESPONSE_KEY,
 	INVENTORY_OVERVIEW_RESULT_KEY,
-	INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY,
+	INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY,
 	parseIFrameInventoryOverviewOperationResponse,
 	parseIFrameInventoryOverviewRequest,
 	parseIFrameInventoryOverviewResult,
+	parseIFrameInventoryOverviewSnapshotUpdate,
 } from '../../src/platform/jlceda-v3/presentation/iframe-inventory-overview-protocol';
+import {
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH,
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS,
+} from '../../src/platform/jlceda-v3/presentation/inventory-overview-panel';
 
 const t = ((key: string) => key) as Translate;
 
 const initialState: InventoryOverviewViewState = {
 	query: 'C1',
 	focusItemId: 'item-1',
+	designSelection: {
+		itemIds: ['item-1'],
+		componentCount: 2,
+		unmatchedComponentCount: 1,
+		unmatchedComponentLabels: ['R2 (C999)'],
+	},
 	searchScope: 'current',
 	categoryId: 'child',
 	stockFilter: 'in-stock',
@@ -79,6 +93,7 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 class FakeHost implements InventoryOverviewIFrameHost {
@@ -98,9 +113,8 @@ class FakeHost implements InventoryOverviewIFrameHost {
 		return this.pollResult;
 	});
 
-	public readonly open = vi.fn(async (options: { title: string; onClose: () => void; onWindowControl: (action: 'maximize' | 'minimize') => Promise<void> }) => {
+	public readonly open = vi.fn(async (options: { title: string; onClose: () => void }) => {
 		this.onClose = options.onClose;
-		this.onWindowControl = options.onWindowControl;
 		return this.openResult;
 	});
 
@@ -109,7 +123,6 @@ class FakeHost implements InventoryOverviewIFrameHost {
 	public openResult = true;
 	public poll: () => void = () => undefined;
 	public onClose: () => void = () => undefined;
-	public onWindowControl: (action: 'maximize' | 'minimize') => Promise<void> = async () => undefined;
 
 	public read(key: string): unknown {
 		return this.values.get(key);
@@ -139,6 +152,38 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe('iframe inventory overview protocol', () => {
+	it('opens the native host with a restorable full-width minimized title bar', async () => {
+		const openIFrame = vi.fn().mockResolvedValue(true);
+		vi.stubGlobal('eda', { sys_IFrame: { openIFrame } });
+		const onClose = vi.fn();
+
+		await new EdaInventoryOverviewIFrameHost().open({
+			title: 'Inventory overview',
+			onClose,
+		});
+
+		expect(openIFrame).toHaveBeenCalledWith(
+			'/iframe/inventory-overview.html',
+			1240,
+			800,
+			'jlceda-inventory-overview-panel',
+			expect.objectContaining({
+				maximizeButton: true,
+				minimizeButton: true,
+				minimizeStyle: 'collapsed',
+				title: 'Inventory overview',
+			}),
+		);
+		const nativeOptions = openIFrame.mock.calls[0]?.[4] as {
+			buttonCallbackFn: (button: string) => Promise<void> | void;
+		};
+		await nativeOptions.buttonCallbackFn('minimize');
+		await nativeOptions.buttonCallbackFn('maximize');
+		expect(onClose).not.toHaveBeenCalled();
+		await nativeOptions.buttonCallbackFn('close');
+		expect(onClose).toHaveBeenCalledOnce();
+	});
+
 	it('round-trips a request snapshot and rejects stale or structurally invalid messages', async () => {
 		const host = new FakeHost();
 		const pending = new IFrameInventoryOverviewPanel(t, host).open({
@@ -184,6 +229,17 @@ describe('iframe inventory overview protocol', () => {
 		expect(request.labels.deleteSelected).toBe('inventoryOverview.deleteSelected');
 		expect(request.labels.replenishmentNeedsReplenishment).toBe('inventoryOverview.replenishmentNeedsReplenishment');
 		expect(request.labels.exportReplenishment).toBe('inventoryOverview.exportReplenishment');
+		expect(request.labels.designSelectionCount).toBe('inventoryOverview.designSelectionCount');
+		expect(request.labels.designSelectionCountWithUnmatched).toBe('inventoryOverview.designSelectionCountWithUnmatched');
+		expect(request.labels.designSelectionUnmatchedWarning).toBe('inventoryOverview.designSelectionUnmatchedWarning');
+		expect(request.labels.designSelectionUnmatchedWarningWithMore).toBe('inventoryOverview.designSelectionUnmatchedWarningWithMore');
+		expect(
+			request.initialState?.designSelection?.unmatchedComponentLabels,
+		).not.toBe(initialState.designSelection?.unmatchedComponentLabels);
+		const reparsedRequest = parseIFrameInventoryOverviewRequest(request);
+		expect(
+			reparsedRequest?.initialState?.designSelection?.unmatchedComponentLabels,
+		).not.toBe(request.initialState?.designSelection?.unmatchedComponentLabels);
 		expect(request.labels.favoriteOnly).toBe('inventoryOverview.favoriteOnly');
 		expect(request.labels.columnSettings).toBe('inventoryOverview.columnSettings');
 		expect(request.labels.restoreDefaultColumns).toBe('inventoryOverview.restoreDefaultColumns');
@@ -196,6 +252,56 @@ describe('iframe inventory overview protocol', () => {
 			...request,
 			initialState: { ...initialState, focusItemId: '' },
 		})).toBeUndefined();
+		expect(parseIFrameInventoryOverviewRequest({
+			...request,
+			initialState: {
+				...initialState,
+				designSelection: { ...initialState.designSelection!, itemIds: ['item-1', 'item-1'] },
+			},
+		})?.initialState?.designSelection?.itemIds).toEqual(['item-1', 'item-1']);
+		expect(parseIFrameInventoryOverviewRequest({
+			...request,
+			initialState: {
+				...initialState,
+				designSelection: { ...initialState.designSelection!, itemIds: [] },
+			},
+		})?.initialState?.designSelection?.itemIds).toEqual([]);
+		for (const designSelection of [
+			{ itemIds: [''], componentCount: 1, unmatchedComponentCount: 0 },
+			{ itemIds: ['x'.repeat(501)], componentCount: 1, unmatchedComponentCount: 0 },
+			{ itemIds: ['item-1'], componentCount: 0, unmatchedComponentCount: 0 },
+			{ itemIds: ['item-1'], componentCount: 1, unmatchedComponentCount: -1 },
+			{ itemIds: ['item-1'], componentCount: 1, unmatchedComponentCount: 2 },
+			{ itemIds: ['item-1'], componentCount: 1, unmatchedComponentCount: 1, unmatchedComponentLabels: 'R1' },
+			{ itemIds: ['item-1'], componentCount: 1, unmatchedComponentCount: 1, unmatchedComponentLabels: [''] },
+			{
+				itemIds: ['item-1'],
+				componentCount: 1,
+				unmatchedComponentCount: 1,
+				unmatchedComponentLabels: ['x'.repeat(MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH + 1)],
+			},
+			{ itemIds: ['item-1'], componentCount: 1, unmatchedComponentCount: 1, unmatchedComponentLabels: ['R1\nC1'] },
+			{ itemIds: ['item-1'], componentCount: 1, unmatchedComponentCount: 1, unmatchedComponentLabels: ['R1', 'R2'] },
+			{
+				itemIds: ['item-1'],
+				componentCount: MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS + 1,
+				unmatchedComponentCount: MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS + 1,
+				unmatchedComponentLabels: Array.from(
+					{ length: MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS + 1 },
+					(_, index) => `R${index + 1}`,
+				),
+			},
+			{
+				itemIds: Array.from({ length: MAX_INVENTORY_DOCUMENT_ITEMS + 1 }, () => 'item-1'),
+				componentCount: 1,
+				unmatchedComponentCount: 0,
+			},
+		]) {
+			expect(parseIFrameInventoryOverviewRequest({
+				...request,
+				initialState: { ...initialState, designSelection },
+			})).toBeUndefined();
+		}
 		expect(parseIFrameInventoryOverviewRequest({
 			...request,
 			categories: [...request.categories, {
@@ -213,6 +319,27 @@ describe('iframe inventory overview protocol', () => {
 
 		host.onClose();
 		expect(await settle(pending)).toBeUndefined();
+	});
+
+	it('validates unsolicited data-only snapshot updates and rejects stale sequences', () => {
+		const update = createIFrameInventoryOverviewSnapshotUpdate(
+			'request-1',
+			2,
+			{ items: [item], categories: [{ id: 'child', name: 'Microphones', sortOrder: 0, revision: 2 }] },
+		);
+
+		expect(parseIFrameInventoryOverviewSnapshotUpdate(update, 'request-1', 1)).toMatchObject({
+			sequence: 2,
+			snapshot: { items: [{ id: item.id }], categories: [{ id: 'child' }] },
+		});
+		expect(parseIFrameInventoryOverviewSnapshotUpdate(update, 'request-1', 1)).not.toHaveProperty('focusItemId');
+		expect(parseIFrameInventoryOverviewSnapshotUpdate(update, 'request-1', 2)).toBeUndefined();
+		expect(parseIFrameInventoryOverviewSnapshotUpdate(update, 'another-request')).toBeUndefined();
+		const legacyUpdate = parseIFrameInventoryOverviewSnapshotUpdate(
+			{ ...update, focusItemId: item.id },
+			'request-1',
+		);
+		expect(legacyUpdate).not.toHaveProperty('focusItemId');
 	});
 
 	it('validates revisions and view state on every returned intent', () => {
@@ -320,6 +447,57 @@ describe('inventory overview category manager markup', () => {
 
 		expect(html).toMatch(/<input[^>]+id="search-input"/);
 		expect(html).not.toMatch(/<input[^>]+id="search-input"[^>]+autofocus/);
+	});
+
+	it('does not infer an EDA canvas click from generic window focus events', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+		const hideCalls = [...source.matchAll(/sys_IFrame\.hideIFrame/g)];
+
+		expect(source).not.toContain('eda.sys_Window.addEventListener');
+		expect(source).not.toContain('shouldAutoHideInventoryOverview');
+		expect(source).not.toContain('INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY');
+		expect(hideCalls).toHaveLength(2);
+		for (const call of hideCalls) {
+			expect(source.slice(Math.max(0, (call.index ?? 0) - 500), call.index)).toContain('type === \'place-item\'');
+		}
+	});
+
+	it('clears the design-selection scope with the other overview filters', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+		const clearFiltersStart = source.indexOf('elements.clearFilters.addEventListener(\'click\'');
+		const clearFiltersEnd = source.indexOf('elements.exportReplenishment.addEventListener', clearFiltersStart);
+
+		expect(clearFiltersStart).toBeGreaterThanOrEqual(0);
+		expect(source.slice(clearFiltersStart, clearFiltersEnd)).toContain('designSelection: undefined');
+	});
+
+	it('applies background snapshots without changing the active view state', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+		const updateStart = source.indexOf('if (snapshotUpdate) {');
+		const updateEnd = source.indexOf('const active = pendingOperation;', updateStart);
+		const updateBlock = source.slice(updateStart, updateEnd);
+
+		expect(updateStart).toBeGreaterThanOrEqual(0);
+		expect(updateBlock).toContain('request.items = snapshotUpdate.snapshot.items');
+		expect(updateBlock).toContain('normalizeOverviewViewState(state, request.categories, request.items)');
+		expect(updateBlock).toContain('render();');
+		expect(updateBlock).not.toContain('draftQuery');
+		expect(updateBlock).not.toContain('focusItemId');
+		expect(updateBlock).not.toContain('designSelection:');
+		expect(updateBlock).not.toContain('page:');
+	});
+
+	it('renders partial design-selection misses as an independent alert before the table', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+		const warningIndex = html.indexOf('id="design-selection-warning"');
+
+		expect(warningIndex).toBeGreaterThan(html.indexOf('class="result-toolbar"'));
+		expect(warningIndex).toBeLessThan(html.indexOf('class="table-scroll"'));
+		expect(html.slice(warningIndex, warningIndex + 140)).toContain('role="alert"');
+		expect(html.slice(warningIndex, warningIndex + 140)).toContain('hidden');
+		expect(source).toContain('elements.designSelectionWarning.hidden = unmatchedWarning === undefined');
+		expect(source).toContain('elements.designSelectionWarning.textContent = unmatchedWarning');
 	});
 
 	it('places the EDA category import command in the category manager footer', () => {
@@ -554,22 +732,184 @@ describe('iframeInventoryOverviewPanel', () => {
 		expect(await settle(pending)).toBeUndefined();
 	});
 
-	it('publishes native minimize actions so iframe blur does not hide the restore title window', async () => {
+	it('pushes a fresh data-only snapshot into an active or minimized session without reopening it', async () => {
 		const host = new FakeHost();
-		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [item], categories: [] }, vi.fn());
+		const panel = new IFrameInventoryOverviewPanel(t, host);
+		const pending = panel.open({ items: [item], categories: [] }, vi.fn());
 		const request = await requestFrom(host);
-		await vi.waitFor(() => expect(host.open).toHaveBeenCalledTimes(1));
+		const savedItem = {
+			...item,
+			id: 'saved-item',
+			identity: { ...item.identity, name: 'F4 pending', lcscPartNumber: 'C456' },
+			revision: 1,
+		};
 
-		await host.onWindowControl('minimize');
-
-		expect(host.values.get(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY)).toEqual({
-			action: 'minimize',
-			requestId: request.requestId,
-			timestamp: expect.any(Number),
+		expect(await panel.updateSnapshot({ items: [item, savedItem], categories: [] })).toBe(true);
+		const update = parseIFrameInventoryOverviewSnapshotUpdate(
+			host.values.get(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY),
+			request.requestId,
+		);
+		expect(update).toMatchObject({
+			sequence: expect.any(Number),
+			snapshot: { items: [{ id: item.id }, { id: savedItem.id }] },
 		});
+		expect(update).not.toHaveProperty('focusItemId');
+		expect(update?.sequence).toBeGreaterThan(0);
+		expect(host.open).toHaveBeenCalledTimes(1);
+		expect(host.show).not.toHaveBeenCalled();
+
 		host.onClose();
 		expect(await settle(pending)).toBeUndefined();
-		expect(host.values.has(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY)).toBe(false);
+		expect(host.values.has(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY)).toBe(false);
+	});
+
+	it('pushes a snapshot from a different controller instance into the existing host session', async () => {
+		const host = new FakeHost();
+		const ownerPanel = new IFrameInventoryOverviewPanel(t, host);
+		const pending = ownerPanel.open({ items: [item], categories: [] }, vi.fn());
+		const request = await requestFrom(host);
+		const externalPanel = new IFrameInventoryOverviewPanel(t, host);
+		const savedItem = {
+			...item,
+			id: 'cross-instance-item',
+			identity: { ...item.identity, name: 'Cross-instance item', lcscPartNumber: 'C789' },
+			revision: 1,
+		};
+
+		expect(await externalPanel.updateSnapshot({ items: [item, savedItem], categories: [] })).toBe(true);
+		const update = parseIFrameInventoryOverviewSnapshotUpdate(
+			host.values.get(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY),
+			request.requestId,
+		);
+		expect(update).toMatchObject({
+			snapshot: { items: [{ id: item.id }, { id: savedItem.id }] },
+		});
+		expect(update).not.toHaveProperty('focusItemId');
+		expect(externalPanel).not.toBe(ownerPanel);
+		expect(host.open).toHaveBeenCalledTimes(1);
+
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+	});
+
+	it('removes the obsolete auto-hide control signal before opening a session', async () => {
+		const host = new FakeHost();
+		host.values.set('inventory-overview-panel.v2.window-control', {
+			action: 'minimize',
+			requestId: 'stale-request',
+			timestamp: 1,
+		});
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({ items: [item], categories: [] }, vi.fn());
+		await requestFrom(host);
+
+		expect(host.values.has('inventory-overview-panel.v2.window-control')).toBe(false);
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+	});
+
+	it('retires an active session before replacing it with a new scoped request and operation handler', async () => {
+		const host = new FakeHost();
+		const panel = new IFrameInventoryOverviewPanel(t, host);
+		const oldOperationResult = deferred<{ status: 'cancelled' }>();
+		const oldOperation = vi.fn(() => oldOperationResult.promise);
+		const oldPending = panel.open({ items: [item], categories: [] }, oldOperation);
+		const oldRequest = await requestFrom(host);
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: oldRequest.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: oldRequest.requestId,
+			status: 'operation',
+			operation: {
+				operationId: 'old-operation',
+				intent: {
+					type: 'open-marketplace',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: initialState,
+				},
+			},
+		});
+		host.poll();
+		await vi.waitFor(() => expect(oldOperation).toHaveBeenCalledOnce());
+
+		const replacementItem = {
+			...item,
+			id: 'item-2',
+			identity: { ...item.identity, name: 'Replacement item', lcscPartNumber: 'C456' },
+			revision: 1,
+		};
+		const replacementState: InventoryOverviewViewState = {
+			...initialState,
+			focusItemId: replacementItem.id,
+			designSelection: {
+				itemIds: [replacementItem.id],
+				componentCount: 2,
+				unmatchedComponentCount: 1,
+			},
+		};
+		const newOperation = vi.fn().mockResolvedValue({
+			status: 'succeeded',
+			snapshot: { items: [replacementItem], categories: [] },
+		});
+		const replacementPending = panel.open({
+			items: [replacementItem],
+			categories: [],
+			initialState: replacementState,
+			replaceActiveSession: true,
+		}, newOperation);
+
+		await vi.advanceTimersByTimeAsync(500);
+		expect(parseIFrameInventoryOverviewRequest(host.values.get(INVENTORY_OVERVIEW_REQUEST_KEY))?.requestId)
+			.toBe(oldRequest.requestId);
+		expect(host.close).not.toHaveBeenCalled();
+		oldOperationResult.resolve({ status: 'cancelled' });
+		await vi.advanceTimersByTimeAsync(1_000);
+		await vi.waitFor(() => {
+			const request = parseIFrameInventoryOverviewRequest(host.values.get(INVENTORY_OVERVIEW_REQUEST_KEY));
+			expect(request?.requestId).not.toBe(oldRequest.requestId);
+		});
+		const replacementRequest = await requestFrom(host);
+		expect(replacementRequest).toMatchObject({
+			items: [{ id: replacementItem.id, lcscPartNumber: 'C456' }],
+			initialState: replacementState,
+		});
+		expect(host.show).not.toHaveBeenCalled();
+		expect(host.close).toHaveBeenCalledTimes(1);
+		expect(await oldPending).toBeUndefined();
+
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: replacementRequest.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: replacementRequest.requestId,
+			status: 'operation',
+			operation: {
+				operationId: 'replacement-operation',
+				intent: {
+					type: 'open-marketplace',
+					item: { id: replacementItem.id, expectedRevision: replacementItem.revision },
+					viewState: replacementState,
+				},
+			},
+		});
+		host.poll();
+		await vi.waitFor(() => expect(newOperation).toHaveBeenCalledOnce());
+		expect(oldOperation).toHaveBeenCalledOnce();
+		expect(newOperation).toHaveBeenCalledWith(expect.objectContaining({
+			operationId: 'replacement-operation',
+		}));
+
+		host.onClose();
+		expect(await settle(replacementPending)).toBeUndefined();
+		expect(host.close).toHaveBeenCalledTimes(2);
 	});
 
 	it('keeps the panel open while operations are handled and closes only on an explicit host close', async () => {

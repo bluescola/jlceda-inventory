@@ -3,7 +3,7 @@ import type {
 	InventoryOverviewCategorySnapshot,
 	InventoryOverviewItemSnapshot,
 } from '../../presentation/iframe-inventory-overview-protocol';
-import type { InventoryOverviewViewState } from '../../presentation/inventory-overview-panel';
+import type { InventoryOverviewDesignSelection, InventoryOverviewViewState } from '../../presentation/inventory-overview-panel';
 import { searchInventory } from '../../../../features/inventory-search/application/search-inventory';
 import { formatStructuredLocation } from '../../../../features/inventory/domain/inventory-metadata';
 
@@ -35,6 +35,27 @@ export interface InventoryOverviewScrollPosition {
 export interface InventoryOverviewScrollContainer {
 	scrollLeft: number;
 	scrollTop: number;
+}
+
+export interface InventoryOverviewDesignSelectionWarning {
+	componentLabels: string[];
+	omittedComponentCount: number;
+	matchedInventoryCount: number;
+}
+
+export function inventoryOverviewDesignSelectionWarning(
+	designSelection: InventoryOverviewDesignSelection | undefined,
+	matchedInventoryCount: number,
+): InventoryOverviewDesignSelectionWarning | undefined {
+	if (!designSelection || designSelection.unmatchedComponentCount === 0) {
+		return undefined;
+	}
+	const componentLabels = [...(designSelection.unmatchedComponentLabels ?? [])];
+	return {
+		componentLabels,
+		omittedComponentCount: Math.max(0, designSelection.unmatchedComponentCount - componentLabels.length),
+		matchedInventoryCount,
+	};
 }
 
 export type InventoryOverviewPlacementBlocker = 'model-unavailable' | 'stock-depleted';
@@ -235,31 +256,6 @@ export function revealInventoryOverviewFocus(
 	}, duration);
 }
 
-export function shouldAutoHideInventoryOverview(
-	autoHideArmed: boolean,
-	operationPending: boolean,
-	documentVisible: boolean,
-	edaWindowFocused: boolean,
-): boolean {
-	return autoHideArmed && !operationPending && documentVisible && edaWindowFocused;
-}
-
-export function shouldSuppressAutoHideForWindowControl(
-	value: unknown,
-	requestId: string,
-	now: number,
-): boolean {
-	if (!value || typeof value !== 'object') {
-		return false;
-	}
-	const signal = value as Partial<{ action: string; requestId: string; timestamp: number }>;
-	return signal.requestId === requestId
-		&& (signal.action === 'maximize' || signal.action === 'minimize')
-		&& typeof signal.timestamp === 'number'
-		&& now >= signal.timestamp
-		&& now - signal.timestamp <= 1_000;
-}
-
 export function inventoryOverviewPackageLabel(item: Pick<InventoryOverviewItemSnapshot, 'edaFootprint' | 'package'>): string {
 	return item.package || item.edaFootprint || '\u2014';
 }
@@ -341,10 +337,30 @@ export function shouldClearAppliedSearch(draftQuery: string, appliedQuery: strin
 export function normalizeOverviewViewState(
 	value: InventoryOverviewViewState | undefined,
 	categories: readonly InventoryOverviewCategorySnapshot[],
+	items: readonly InventoryOverviewItemSnapshot[],
 ): InventoryOverviewViewState {
-	const state = value ? { ...value } : { ...DEFAULT_INVENTORY_OVERVIEW_VIEW_STATE };
+	const state = value
+		? {
+				...value,
+				designSelection: value.designSelection
+					? {
+							...value.designSelection,
+							itemIds: [...value.designSelection.itemIds],
+							...(value.designSelection.unmatchedComponentLabels
+								? { unmatchedComponentLabels: [...value.designSelection.unmatchedComponentLabels] }
+								: {}),
+						}
+					: undefined,
+			}
+		: { ...DEFAULT_INVENTORY_OVERVIEW_VIEW_STATE };
 	state.replenishmentFilter ??= 'all';
 	state.favoriteFilter ??= 'all';
+	if (state.designSelection) {
+		const availableItemIds = new Set(items.map(item => item.id));
+		const itemIds = [...new Set(state.designSelection.itemIds)]
+			.filter(itemId => availableItemIds.has(itemId));
+		state.designSelection = { ...state.designSelection, itemIds };
+	}
 	if (state.categoryId !== 'all'
 		&& state.categoryId !== 'unclassified'
 		&& !categories.some(category => category.id === state.categoryId)) {
@@ -371,10 +387,14 @@ export function filterAndSortInventory(
 	categories: readonly InventoryOverviewCategorySnapshot[],
 	state: InventoryOverviewViewState,
 ): InventoryOverviewItemSnapshot[] {
+	const designSelectionItemIds = state.designSelection
+		? new Set(state.designSelection.itemIds)
+		: undefined;
 	const categoryIds = selectedCategoryIds(state.categoryId, categories);
 	const knownCategoryIds = new Set(categories.map(category => category.id));
 	const searchAcrossAllCategories = state.query.trim().length > 0 && state.searchScope === 'all';
-	const candidates = items.filter(item => (searchAcrossAllCategories || matchesCategory(item, state.categoryId, categoryIds, knownCategoryIds))
+	const candidates = items.filter(item => (!designSelectionItemIds || designSelectionItemIds.has(item.id))
+		&& (searchAcrossAllCategories || matchesCategory(item, state.categoryId, categoryIds, knownCategoryIds))
 		&& (state.stockFilter === 'all' || item.state === state.stockFilter)
 		&& matchesReplenishmentFilter(item, state.replenishmentFilter ?? 'all')
 		&& ((state.favoriteFilter ?? 'all') === 'all' || item.favorite)

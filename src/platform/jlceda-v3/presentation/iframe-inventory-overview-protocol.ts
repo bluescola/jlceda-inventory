@@ -13,13 +13,17 @@ import type {
 } from './inventory-overview-panel';
 import { MAX_INVENTORY_DOCUMENT_CATEGORIES, MAX_INVENTORY_DOCUMENT_ITEMS } from '../../../features/inventory/application/inventory-document-limits';
 import { classifyReplenishment } from '../../../features/inventory/domain/replenishment';
+import {
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH,
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS,
+} from './inventory-overview-panel';
 
 export const INVENTORY_OVERVIEW_IFRAME_ID = 'jlceda-inventory-overview-panel';
 export const INVENTORY_OVERVIEW_IFRAME_PATH = '/iframe/inventory-overview.html';
 export const INVENTORY_OVERVIEW_REQUEST_KEY = 'inventory-overview-panel.v2.request';
 export const INVENTORY_OVERVIEW_RESULT_KEY = 'inventory-overview-panel.v2.result';
 export const INVENTORY_OVERVIEW_RESPONSE_KEY = 'inventory-overview-panel.v2.response';
-export const INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY = 'inventory-overview-panel.v2.window-control';
+export const INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY = 'inventory-overview-panel.v2.snapshot-update';
 export const INVENTORY_OVERVIEW_PROTOCOL_VERSION = 2;
 
 export type InventoryOverviewPanelStage = 'panel-rendered' | 'request-read' | 'script-started';
@@ -85,6 +89,12 @@ const LABEL_KEYS = [
 	'refresh',
 	'itemsCount',
 	'filteredCount',
+	'designSelectionCount',
+	'designSelectionCountWithUnmatched',
+	'designSelectionUnmatchedWarning',
+	'designSelectionUnmatchedWarningWithMore',
+	'designSelectionUnmatchedWarningCountOnly',
+	'designSelectionUnmatchedSeparator',
 	'selectedCount',
 	'selectAllFiltered',
 	'clearSelection',
@@ -255,6 +265,14 @@ export interface IFrameInventoryOverviewOperationResponse {
 	result: InventoryOverviewOperationResultSnapshot;
 }
 
+export interface IFrameInventoryOverviewSnapshotUpdate {
+	protocolVersion: 2;
+	requestId: string;
+	sequence: number;
+	status: 'snapshot-update';
+	snapshot: InventoryOverviewSnapshotPayload;
+}
+
 type InventoryOverviewOperationResultSnapshot
 	= | { status: 'succeeded' | 'cancelled'; message?: string; snapshot?: InventoryOverviewSnapshotPayload }
 		| { status: 'failed' | 'model-missing'; message: string; snapshot?: InventoryOverviewSnapshotPayload }
@@ -283,7 +301,7 @@ export function createInventoryOverviewRequest(
 		requestId,
 		labels: { ...labels },
 		categories: input.categories.map(createCategorySnapshot),
-		initialState: input.initialState ? { ...input.initialState } : undefined,
+		initialState: input.initialState ? cloneViewState(input.initialState) : undefined,
 		items: input.items.map(createItemSnapshot),
 	};
 }
@@ -299,6 +317,20 @@ export function createIFrameInventoryOverviewOperationResponse(
 		operationId,
 		status: 'operation-response',
 		result: createOperationResultSnapshot(result),
+	};
+}
+
+export function createIFrameInventoryOverviewSnapshotUpdate(
+	requestId: string,
+	sequence: number,
+	snapshot: InventoryOverviewSnapshot,
+): IFrameInventoryOverviewSnapshotUpdate {
+	return {
+		protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+		requestId,
+		sequence,
+		status: 'snapshot-update',
+		snapshot: createSnapshotPayload(snapshot),
 	};
 }
 
@@ -318,7 +350,7 @@ export function parseIFrameInventoryOverviewRequest(value: unknown): IFrameInven
 		labels: { ...value.labels },
 		categories: value.categories.map(category => ({ ...category })),
 		items: value.items.map(cloneItemSnapshot),
-		initialState: value.initialState ? { ...value.initialState } : undefined,
+		initialState: value.initialState ? cloneViewState(value.initialState) : undefined,
 	};
 }
 
@@ -377,6 +409,32 @@ export function parseIFrameInventoryOverviewOperationResponse(
 		operationId: value.operationId,
 		status: 'operation-response',
 		result: cloneOperationResultSnapshot(value.result),
+	};
+}
+
+export function parseIFrameInventoryOverviewSnapshotUpdate(
+	value: unknown,
+	expectedRequestId: string,
+	afterSequence = 0,
+): IFrameInventoryOverviewSnapshotUpdate | undefined {
+	if (!isRecord(value)
+		|| value.protocolVersion !== INVENTORY_OVERVIEW_PROTOCOL_VERSION
+		|| value.requestId !== expectedRequestId
+		|| value.status !== 'snapshot-update'
+		|| !isPositiveSafeInteger(value.sequence)
+		|| value.sequence <= afterSequence
+		|| !isSnapshotPayload(value.snapshot)) {
+		return undefined;
+	}
+	return {
+		protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+		requestId: expectedRequestId,
+		sequence: value.sequence,
+		status: 'snapshot-update',
+		snapshot: {
+			categories: value.snapshot.categories.map(category => ({ ...category })),
+			items: value.snapshot.items.map(cloneItemSnapshot),
+		},
 	};
 }
 
@@ -447,10 +505,10 @@ function createSnapshotPayload(snapshot: InventoryOverviewSnapshot): InventoryOv
 
 function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 	if (intent.type === 'move-items' || intent.type === 'delete-items') {
-		return { ...intent, items: intent.items.map(item => ({ ...item })), viewState: { ...intent.viewState } };
+		return { ...intent, items: intent.items.map(item => ({ ...item })), viewState: cloneViewState(intent.viewState) };
 	}
 	if (intent.type === 'reorder-categories') {
-		return { ...intent, categories: intent.categories.map(category => ({ ...category })), viewState: { ...intent.viewState } };
+		return { ...intent, categories: intent.categories.map(category => ({ ...category })), viewState: cloneViewState(intent.viewState) };
 	}
 	if (intent.type === 'view-item'
 		|| intent.type === 'place-item'
@@ -460,7 +518,7 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 		|| intent.type === 'retry-model'
 		|| intent.type === 'copy-common'
 		|| intent.type === 'delete-item') {
-		return { ...intent, item: { ...intent.item }, viewState: { ...intent.viewState } };
+		return { ...intent, item: { ...intent.item }, viewState: cloneViewState(intent.viewState) };
 	}
 	if (intent.type === 'update-item') {
 		return {
@@ -473,7 +531,7 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 					: intent.draft.structuredLocation,
 			},
 			item: { ...intent.item },
-			viewState: { ...intent.viewState },
+			viewState: cloneViewState(intent.viewState),
 		};
 	}
 	if (intent.type === 'merge-items') {
@@ -481,16 +539,31 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 			...intent,
 			source: { ...intent.source },
 			target: { ...intent.target },
-			viewState: { ...intent.viewState },
+			viewState: cloneViewState(intent.viewState),
 		};
 	}
 	if (intent.type === 'attach-model') {
-		return { ...intent, item: { ...intent.item }, viewState: { ...intent.viewState } };
+		return { ...intent, item: { ...intent.item }, viewState: cloneViewState(intent.viewState) };
 	}
 	if (intent.type === 'rename-category' || intent.type === 'delete-category') {
-		return { ...intent, category: { ...intent.category }, viewState: { ...intent.viewState } };
+		return { ...intent, category: { ...intent.category }, viewState: cloneViewState(intent.viewState) };
 	}
-	return { ...intent, viewState: { ...intent.viewState } };
+	return { ...intent, viewState: cloneViewState(intent.viewState) };
+}
+
+function cloneViewState(value: InventoryOverviewViewState): InventoryOverviewViewState {
+	return {
+		...value,
+		designSelection: value.designSelection
+			? {
+					...value.designSelection,
+					itemIds: [...value.designSelection.itemIds],
+					...(value.designSelection.unmatchedComponentLabels
+						? { unmatchedComponentLabels: [...value.designSelection.unmatchedComponentLabels] }
+						: {}),
+				}
+			: undefined,
+	};
 }
 
 function cloneOperationResultSnapshot(
@@ -631,6 +704,7 @@ function isViewState(value: unknown): value is InventoryOverviewViewState {
 	return isRecord(value)
 		&& isText(value.query, 500)
 		&& (value.focusItemId === undefined || isNonEmptyText(value.focusItemId, 500))
+		&& (value.designSelection === undefined || isDesignSelection(value.designSelection))
 		&& (value.searchScope === 'all' || value.searchScope === 'current')
 		&& isNonEmptyText(value.categoryId, 500)
 		&& (value.stockFilter === 'all' || value.stockFilter === 'in-stock' || value.stockFilter === 'depleted')
@@ -643,6 +717,32 @@ function isViewState(value: unknown): value is InventoryOverviewViewState {
 		&& (value.sort === 'relevance' || value.sort === 'name' || value.sort === 'stock' || value.sort === 'updated' || value.sort === 'category')
 		&& isPositiveSafeInteger(value.page)
 		&& (value.pageSize === 25 || value.pageSize === 50 || value.pageSize === 100);
+}
+
+function isDesignSelection(value: unknown): value is NonNullable<InventoryOverviewViewState['designSelection']> {
+	return isRecord(value)
+		&& Array.isArray(value.itemIds)
+		&& value.itemIds.length <= MAX_INVENTORY_DOCUMENT_ITEMS
+		&& value.itemIds.every(itemId => isNonEmptyText(itemId, 500))
+		&& isPositiveSafeInteger(value.componentCount)
+		&& isSafeNonNegativeInteger(value.unmatchedComponentCount)
+		&& value.unmatchedComponentCount <= value.componentCount
+		&& (value.unmatchedComponentLabels === undefined
+			|| (Array.isArray(value.unmatchedComponentLabels)
+				&& value.unmatchedComponentLabels.length <= MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS
+				&& value.unmatchedComponentLabels.length <= value.unmatchedComponentCount
+				&& value.unmatchedComponentLabels.every(isSafeUnmatchedComponentLabel)));
+}
+
+function isSafeUnmatchedComponentLabel(value: unknown): value is string {
+	return isNonEmptyTrimmedText(value, MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH)
+		&& value === value.trim()
+		&& !Array.from(value).some(isUnsafeDisplayControlCharacter);
+}
+
+function isUnsafeDisplayControlCharacter(character: string): boolean {
+	const codePoint = character.codePointAt(0) ?? 0;
+	return codePoint <= 0x1F || (codePoint >= 0x7F && codePoint <= 0x9F);
 }
 
 function isCategories(value: unknown): value is InventoryOverviewCategorySnapshot[] {

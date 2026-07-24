@@ -23,9 +23,10 @@ import {
 	INVENTORY_OVERVIEW_REQUEST_KEY,
 	INVENTORY_OVERVIEW_RESPONSE_KEY,
 	INVENTORY_OVERVIEW_RESULT_KEY,
-	INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY,
+	INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY,
 	parseIFrameInventoryOverviewOperationResponse,
 	parseIFrameInventoryOverviewRequest,
+	parseIFrameInventoryOverviewSnapshotUpdate,
 } from '../../presentation/iframe-inventory-overview-protocol';
 import {
 	canHideInventoryOverviewColumn,
@@ -36,6 +37,7 @@ import {
 	inventoryCategoryCounts,
 	inventoryItemsForCategoryDrop,
 	inventoryItemsForDrag,
+	inventoryOverviewDesignSelectionWarning,
 	inventoryOverviewFocusPage,
 	inventoryOverviewLcscPartNumber,
 	inventoryOverviewLocationLabel,
@@ -53,9 +55,7 @@ import {
 	saveInventoryOverviewColumnPreferences,
 	selectInventoryOverviewCategory,
 	setInventoryOverviewColumnVisibility,
-	shouldAutoHideInventoryOverview,
 	shouldClearAppliedSearch,
-	shouldSuppressAutoHideForWindowControl,
 	updateFilteredInventorySelection,
 } from './inventory-overview-model';
 
@@ -105,6 +105,7 @@ interface PanelElements {
 	deleteChildCategory: HTMLButtonElement;
 	childCategoryList: HTMLElement;
 	resultSummary: HTMLElement;
+	designSelectionWarning: HTMLElement;
 	bulkToolbar: HTMLElement;
 	selectedSummary: HTMLElement;
 	selectFiltered: HTMLButtonElement;
@@ -219,7 +220,7 @@ function renderPanel(
 	writeResult: (result: IFrameInventoryOverviewResult) => Promise<boolean>,
 ): void {
 	const labels = request.labels;
-	let state = normalizeOverviewViewState(request.initialState, request.categories);
+	let state = normalizeOverviewViewState(request.initialState, request.categories, request.items);
 	let pendingFocusItemId = state.focusItemId;
 	let draftQuery = state.query;
 	let selectedIds = new Set<string>();
@@ -231,8 +232,7 @@ function renderPanel(
 	const columnPreferenceStorage = browserColumnPreferenceStorage();
 	let columnPreferences = loadInventoryOverviewColumnPreferences(columnPreferenceStorage);
 	let pendingOperation: PendingOperation | undefined;
-	let autoHideArmed = false;
-	let edaWindowFocused = false;
+	let lastSnapshotUpdateSequence = 0;
 	const ignoredOperationIds = new Set<string>();
 	let render = (_preserveTableScroll?: boolean): void => undefined;
 
@@ -470,10 +470,39 @@ function renderPanel(
 		renderRows(elements, request, page.items, selectedIds, labels, itemDrag, openCategoryDrawer, closeCategoryDrawer, requestIntent, render);
 		applyInventoryOverviewColumnPreferences(elements, columnPreferences);
 		renderBulkToolbar(elements, request.categories, filtered, selectedIds, labels, requestIntent, render);
-		elements.resultSummary.textContent = formatLabel(labels.filteredCount, {
-			count: page.total,
-			total: request.items.length,
-		});
+		const designSelection = state.designSelection;
+		elements.resultSummary.textContent = designSelection
+			? formatLabel(
+					designSelection.unmatchedComponentCount > 0
+						? labels.designSelectionCountWithUnmatched
+						: labels.designSelectionCount,
+					{
+						componentCount: designSelection.componentCount,
+						count: page.total,
+						unmatchedComponentCount: designSelection.unmatchedComponentCount,
+					},
+				)
+			: formatLabel(labels.filteredCount, {
+					count: page.total,
+					total: request.items.length,
+				});
+		const unmatchedWarning = inventoryOverviewDesignSelectionWarning(designSelection, page.total);
+		elements.designSelectionWarning.hidden = unmatchedWarning === undefined;
+		elements.designSelectionWarning.textContent = unmatchedWarning
+			? formatLabel(
+					unmatchedWarning.componentLabels.length === 0
+						? labels.designSelectionUnmatchedWarningCountOnly
+						: unmatchedWarning.omittedComponentCount > 0
+							? labels.designSelectionUnmatchedWarningWithMore
+							: labels.designSelectionUnmatchedWarning,
+					{
+						components: unmatchedWarning.componentLabels.join(labels.designSelectionUnmatchedSeparator),
+						count: unmatchedWarning.matchedInventoryCount,
+						remainingCount: unmatchedWarning.omittedComponentCount,
+						unmatchedComponentCount: designSelection?.unmatchedComponentCount ?? 0,
+					},
+				)
+			: '';
 		elements.emptyResults.hidden = page.total > 0;
 		elements.rows.closest('table')!.hidden = page.total === 0;
 		elements.pageStatus.textContent = formatLabel(labels.pageStatus, { page: page.page, pages: page.pageCount });
@@ -542,6 +571,7 @@ function renderPanel(
 		elements.searchInput.value = '';
 		updateState({
 			query: '',
+			designSelection: undefined,
 			searchScope: 'all',
 			categoryId: 'all',
 			stockFilter: 'all',
@@ -583,32 +613,6 @@ function renderPanel(
 	elements.categoryManagerClose.addEventListener('click', closeCategoryManager);
 	elements.categoryManagerCloseIcon.addEventListener('click', closeCategoryManager);
 	elements.categoryManagerBackdrop.addEventListener('click', event => event.target === elements.categoryManagerBackdrop ? closeCategoryManager() : undefined);
-	eda.sys_Window.addEventListener('focus' as ESYS_WindowEventType, () => {
-		edaWindowFocused = true;
-	});
-	eda.sys_Window.addEventListener('blur' as ESYS_WindowEventType, () => {
-		edaWindowFocused = false;
-	});
-	window.addEventListener('focus', () => {
-		edaWindowFocused = false;
-	});
-	window.addEventListener('blur', () => {
-		const operationWasPending = Boolean(pendingOperation);
-		window.setTimeout(() => {
-			const windowControl = eda.sys_Storage.getExtensionUserConfig(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY);
-			if (typeof eda.sys_IFrame?.hideIFrame !== 'function'
-				|| shouldSuppressAutoHideForWindowControl(windowControl, request.requestId, Date.now())
-				|| !shouldAutoHideInventoryOverview(
-					autoHideArmed,
-					operationWasPending || Boolean(pendingOperation),
-					document.visibilityState === 'visible',
-					edaWindowFocused,
-				)) {
-				return;
-			}
-			void eda.sys_IFrame.hideIFrame(INVENTORY_OVERVIEW_IFRAME_ID).catch(() => undefined);
-		}, 250);
-	});
 	elements.operationCancel.addEventListener('click', () => {
 		if (pendingOperation?.id) {
 			ignoredOperationIds.add(pendingOperation.id);
@@ -618,6 +622,18 @@ function renderPanel(
 		trigger?.focus();
 	});
 	window.setInterval(() => {
+		const snapshotUpdate = parseIFrameInventoryOverviewSnapshotUpdate(
+			eda.sys_Storage.getExtensionUserConfig(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY),
+			request.requestId,
+			lastSnapshotUpdateSequence,
+		);
+		if (snapshotUpdate) {
+			lastSnapshotUpdateSequence = snapshotUpdate.sequence;
+			request.categories = snapshotUpdate.snapshot.categories;
+			request.items = snapshotUpdate.snapshot.items;
+			state = normalizeOverviewViewState(state, request.categories, request.items);
+			render();
+		}
 		const active = pendingOperation;
 		if (!active?.id) {
 			return;
@@ -641,7 +657,7 @@ function renderPanel(
 		if ('snapshot' in result && result.snapshot) {
 			request.categories = result.snapshot.categories;
 			request.items = result.snapshot.items;
-			state = normalizeOverviewViewState(state, request.categories);
+			state = normalizeOverviewViewState(state, request.categories, request.items);
 			render();
 		}
 		if (result.status === 'model-match') {
@@ -725,13 +741,6 @@ function renderPanel(
 			}
 			return;
 		}
-		if (active.intent.type === 'export-replenishment' && 'message' in result && result.message) {
-			showOperationDialog(actionTitle(active.intent, labels), result.message);
-			elements.operationCancel.hidden = false;
-			elements.operationConfirm.hidden = true;
-			elements.operationRetry.hidden = true;
-			return;
-		}
 		closeOperationDialog(false);
 		if (result.status === 'succeeded') {
 			active.onSucceeded?.(result.message);
@@ -758,7 +767,6 @@ function renderPanel(
 	window.setTimeout(() => {
 		window.focus();
 		elements.searchInput.focus({ preventScroll: true });
-		autoHideArmed = true;
 	}, 300);
 }
 
@@ -2467,6 +2475,7 @@ function getElements(): PanelElements {
 		deleteChildCategory: element('delete-child-category', HTMLButtonElement),
 		childCategoryList: element('child-category-list', HTMLElement),
 		resultSummary: element('result-summary', HTMLElement),
+		designSelectionWarning: element('design-selection-warning', HTMLElement),
 		bulkToolbar: element('bulk-toolbar', HTMLElement),
 		selectedSummary: element('selected-summary', HTMLElement),
 		selectFiltered: element('select-filtered', HTMLButtonElement),

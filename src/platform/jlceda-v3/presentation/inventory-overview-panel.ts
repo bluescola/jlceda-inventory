@@ -18,6 +18,7 @@ export interface InventoryOverviewInput {
 	items: readonly InventoryOverviewItem[];
 	categories: readonly InventoryOverviewCategory[];
 	initialState?: InventoryOverviewViewState;
+	replaceActiveSession?: boolean;
 }
 
 export interface InventoryOverviewRevisionRef {
@@ -32,9 +33,20 @@ export type InventoryOverviewFavoriteFilter = 'all' | 'favorites';
 export type InventoryOverviewSort = 'category' | 'name' | 'relevance' | 'stock' | 'updated';
 export type InventoryOverviewSearchScope = 'all' | 'current';
 
+export const MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS = 8;
+export const MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH = 120;
+
+export interface InventoryOverviewDesignSelection {
+	itemIds: string[];
+	componentCount: number;
+	unmatchedComponentCount: number;
+	unmatchedComponentLabels?: string[];
+}
+
 export interface InventoryOverviewViewState {
 	query: string;
 	focusItemId?: string;
+	designSelection?: InventoryOverviewDesignSelection;
 	searchScope: InventoryOverviewSearchScope;
 	categoryId: 'all' | 'unclassified' | string;
 	stockFilter: InventoryOverviewStockFilter;
@@ -103,6 +115,10 @@ export interface InventoryOverviewPanel {
 		onOperation: InventoryOverviewOperationHandler,
 		trace?: DiagnosticTrace,
 	) => Promise<void>;
+	updateSnapshot: (
+		snapshot: InventoryOverviewSnapshot,
+		trace?: DiagnosticTrace,
+	) => Promise<boolean>;
 }
 
 export const INVENTORY_OVERVIEW_MODEL_STATUSES: readonly EdaModelStatus[] = [

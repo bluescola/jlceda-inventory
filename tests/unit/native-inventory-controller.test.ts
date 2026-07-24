@@ -26,6 +26,10 @@ import type { ProjectPlanningPanel } from '../../src/platform/jlceda-v3/presenta
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeInventoryItem } from '../../src/features/inventory/domain/inventory-item';
 import { AutomaticBackupFolderPickerError } from '../../src/platform/jlceda-v3/persistence/automatic-inventory-backup';
+import {
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH,
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS,
+} from '../../src/platform/jlceda-v3/presentation/inventory-overview-panel';
 import { NativeInventoryController } from '../../src/platform/jlceda-v3/presentation/native-inventory-controller';
 
 const edaModel: EdaModel = {
@@ -249,6 +253,7 @@ function createController(
 		open: vi.fn(openDesignStockCheckPanel ?? (async () => undefined)),
 	};
 	const inventoryOverviewPanel = {
+		updateSnapshot: vi.fn().mockResolvedValue(false),
 		open: vi.fn(async (input: InventoryOverviewInput, onOperation: InventoryOverviewOperationHandler): Promise<void> => {
 			const itemId = selections.shift();
 			if (!itemId) {
@@ -421,7 +426,7 @@ describe('nativeInventoryController.manageSubstituteLinks', () => {
 });
 
 describe('nativeInventoryController.locateSelectedInventory', () => {
-	it('opens the inventory overview filtered to the selected component C-number', async () => {
+	it('opens the inventory overview scoped to the selected component inventory', async () => {
 		const item = createInventoryItem();
 		const selectedDesignComponents = {
 			readSelectedComponents: vi.fn().mockResolvedValue({
@@ -465,10 +470,16 @@ describe('nativeInventoryController.locateSelectedInventory', () => {
 		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledWith(
 			expect.objectContaining({
 				items: [item],
+				replaceActiveSession: true,
 				initialState: expect.objectContaining({
 					focusItemId: item.id,
-					query: 'C233991',
+					query: '',
 					searchScope: 'all',
+					designSelection: {
+						itemIds: [item.id],
+						componentCount: 1,
+						unmatchedComponentCount: 0,
+					},
 				}),
 			}),
 			expect.any(Function),
@@ -477,7 +488,7 @@ describe('nativeInventoryController.locateSelectedInventory', () => {
 		expect(context.inventoryCreatePanel.open).not.toHaveBeenCalled();
 	});
 
-	it('focuses the exact inventory record selected from duplicate C-number matches', async () => {
+	it('shows every inventory record matching one selected component without another selector', async () => {
 		const first = createInventoryItem('first-match');
 		const second = {
 			...createInventoryItem('second-match'),
@@ -499,7 +510,7 @@ describe('nativeInventoryController.locateSelectedInventory', () => {
 		const context = createController(
 			vi.fn(),
 			[],
-			[second.id],
+			[],
 			undefined,
 			undefined,
 			undefined,
@@ -522,24 +533,259 @@ describe('nativeInventoryController.locateSelectedInventory', () => {
 
 		await context.controller.locateSelectedInventory();
 
-		expect(context.dialog.select).toHaveBeenCalledWith(
-			expect.arrayContaining([
-				expect.objectContaining({ value: first.id }),
-				expect.objectContaining({ value: second.id }),
-			]),
-			'selectedInventory.title',
-			'selectedInventory.chooseInventory',
-		);
+		expect(context.dialog.select).not.toHaveBeenCalled();
 		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledWith(
 			expect.objectContaining({
 				initialState: expect.objectContaining({
-					focusItemId: second.id,
-					query: 'C233991',
+					query: '',
+					designSelection: {
+						itemIds: [first.id, second.id],
+						componentCount: 1,
+						unmatchedComponentCount: 0,
+					},
 				}),
 			}),
 			expect.any(Function),
 			context.trace,
 		);
+		const input = context.inventoryOverviewPanel.open.mock.calls[0]![0];
+		expect(input.initialState?.focusItemId).toBeUndefined();
+	});
+
+	it('shows all multi-selection matches and deduplicates inventory shared by selected components', async () => {
+		const first = createInventoryItem('selected-a');
+		const secondBase = createInventoryItem('selected-b');
+		const second = {
+			...secondBase,
+			identity: {
+				...secondBase.identity,
+				lcscPartNumber: 'C5832371',
+				supplierId: 'C5832371',
+			},
+		};
+		const selectedDesignComponents = {
+			readSelectedComponents: vi.fn().mockResolvedValue({
+				status: 'available',
+				snapshot: {
+					document: { kind: 'schematic', uuid: 'schematic-1' },
+					components: [
+						{ primitiveId: 'primitive-a', designator: 'R1', lcscPartNumber: 'C233991' },
+						{ primitiveId: 'primitive-a-copy', designator: 'R2', lcscPartNumber: 'C233991' },
+						{ primitiveId: 'primitive-b', designator: 'C1', lcscPartNumber: 'C5832371' },
+					],
+				},
+			}),
+		} satisfies SelectedDesignComponentsReader;
+		const context = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			selectedDesignComponents,
+		);
+		context.inventory.exportDocument.mockResolvedValue({
+			schemaVersion: 9,
+			revision: 1,
+			updatedAt: '2026-07-21T00:00:00.000Z',
+			categories: [],
+			items: [first, second],
+			orderImportBatches: [],
+			transactions: [],
+			stockOutBatches: [],
+			projectSnapshots: [],
+			purchaseRecords: [],
+			substituteLinks: [],
+		});
+
+		await context.controller.locateSelectedInventory();
+
+		expect(context.dialog.select).not.toHaveBeenCalled();
+		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledWith(
+			expect.objectContaining({
+				items: [first, second],
+				initialState: expect.objectContaining({
+					query: '',
+					designSelection: {
+						itemIds: [first.id, second.id],
+						componentCount: 3,
+						unmatchedComponentCount: 0,
+					},
+				}),
+			}),
+			expect.any(Function),
+			context.trace,
+		);
+	});
+
+	it('shows matched inventory with an unmatched count when only part of a multi-selection matches', async () => {
+		const item = createInventoryItem();
+		const selectedDesignComponents = {
+			readSelectedComponents: vi.fn().mockResolvedValue({
+				status: 'available',
+				snapshot: {
+					document: { kind: 'pcb', uuid: 'pcb-1' },
+					components: [
+						{ primitiveId: 'primitive-a', designator: 'R1', lcscPartNumber: 'C233991' },
+						{ primitiveId: 'primitive-missing', designator: 'U1', lcscPartNumber: 'C999999' },
+					],
+				},
+			}),
+		} satisfies SelectedDesignComponentsReader;
+		const context = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			selectedDesignComponents,
+		);
+		context.inventory.exportDocument.mockResolvedValue({
+			schemaVersion: 9,
+			revision: 1,
+			updatedAt: '2026-07-21T00:00:00.000Z',
+			categories: [],
+			items: [item],
+			orderImportBatches: [],
+			transactions: [],
+			stockOutBatches: [],
+			projectSnapshots: [],
+			purchaseRecords: [],
+			substituteLinks: [],
+		});
+
+		await context.controller.locateSelectedInventory();
+
+		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledWith(
+			expect.objectContaining({
+				initialState: expect.objectContaining({
+					focusItemId: item.id,
+					designSelection: {
+						itemIds: [item.id],
+						componentCount: 2,
+						unmatchedComponentCount: 1,
+						unmatchedComponentLabels: ['U1 (C999999)'],
+					},
+				}),
+			}),
+			expect.any(Function),
+			context.trace,
+		);
+		expect(context.dialog.info).not.toHaveBeenCalled();
+		expect(context.dialog.confirm).not.toHaveBeenCalled();
+		expect(context.trace.info).toHaveBeenCalledWith('selected-components.matches', {
+			componentCount: 2,
+			matchedItemCount: 1,
+			unmatchedComponentCount: 1,
+		});
+	});
+
+	it('prioritizes, sanitizes, truncates, and limits unmatched component labels', async () => {
+		const item = createInventoryItem();
+		const longName = `Long\ncomponent ${'x'.repeat(180)}`;
+		const unmatchedComponents = [
+			{ primitiveId: 'missing-c', designator: 'U1', lcscPartNumber: 'C900001', manufacturerPartNumber: 'IGNORED-MPN', name: 'Ignored name' },
+			{ primitiveId: 'missing-mpn', designator: 'U2', manufacturerPartNumber: 'MPN-2', name: 'Ignored name' },
+			{ primitiveId: 'missing-name', designator: 'U3', name: longName },
+			{ primitiveId: 'missing-fallback' },
+			...Array.from({ length: 6 }, (_, index) => ({
+				primitiveId: `missing-${index + 4}`,
+				designator: `U${index + 4}`,
+				lcscPartNumber: `C${910000 + index}`,
+			})),
+		];
+		const selectedDesignComponents = {
+			readSelectedComponents: vi.fn().mockResolvedValue({
+				status: 'available',
+				snapshot: {
+					document: { kind: 'pcb', uuid: 'pcb-1' },
+					components: [
+						{ primitiveId: 'matched', designator: 'R1', lcscPartNumber: 'C233991' },
+						...unmatchedComponents,
+					],
+				},
+			}),
+		} satisfies SelectedDesignComponentsReader;
+		const context = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			selectedDesignComponents,
+		);
+		context.inventory.exportDocument.mockResolvedValue({
+			schemaVersion: 9,
+			revision: 1,
+			updatedAt: '2026-07-21T00:00:00.000Z',
+			categories: [],
+			items: [item],
+			orderImportBatches: [],
+			transactions: [],
+			stockOutBatches: [],
+			projectSnapshots: [],
+			purchaseRecords: [],
+			substituteLinks: [],
+		});
+
+		await context.controller.locateSelectedInventory();
+
+		const input = context.inventoryOverviewPanel.open.mock.calls[0]![0];
+		const selection = input.initialState?.designSelection;
+		expect(selection).toMatchObject({
+			componentCount: 11,
+			unmatchedComponentCount: 10,
+		});
+		expect(selection?.unmatchedComponentLabels).toHaveLength(MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS);
+		expect(selection?.unmatchedComponentLabels?.slice(0, 2)).toEqual(['U1 (C900001)', 'U2 (MPN-2)']);
+		expect(selection?.unmatchedComponentLabels?.[2]).toMatch(/^U3 \(Long component /);
+		expect(selection?.unmatchedComponentLabels?.[2]?.length).toBeLessThanOrEqual(MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH);
+		expect(selection?.unmatchedComponentLabels?.[3]).toBe('missing-fallback');
+		expect(context.dialog.info).not.toHaveBeenCalled();
+		expect(context.dialog.confirm).not.toHaveBeenCalled();
+	});
+
+	it('reports a multi-selection with no inventory matches without choosing one to add', async () => {
+		const selectedDesignComponents = {
+			readSelectedComponents: vi.fn().mockResolvedValue({
+				status: 'available',
+				snapshot: {
+					document: { kind: 'schematic', uuid: 'schematic-1' },
+					components: [
+						{ primitiveId: 'primitive-a', designator: 'R1', lcscPartNumber: 'C900001' },
+						{ primitiveId: 'primitive-b', designator: 'R2', lcscPartNumber: 'C900002' },
+					],
+				},
+			}),
+		} satisfies SelectedDesignComponentsReader;
+		const context = createController(
+			vi.fn(),
+			[],
+			[],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			selectedDesignComponents,
+		);
+
+		await context.controller.locateSelectedInventory();
+
+		expect(context.dialog.info).toHaveBeenCalledWith('selectedInventory.noneMatched', 'selectedInventory.title');
+		expect(context.dialog.select).not.toHaveBeenCalled();
+		expect(context.dialog.confirm).not.toHaveBeenCalled();
+		expect(context.inventoryOverviewPanel.open).not.toHaveBeenCalled();
+		expect(context.inventoryCreatePanel.open).not.toHaveBeenCalled();
 	});
 
 	it('offers a prefilled create flow when the selected component is missing from inventory', async () => {
@@ -941,6 +1187,12 @@ describe('nativeInventoryController.compareBomVersions', () => {
 describe('nativeInventoryController.stockOutBomFile', () => {
 	it('commits one explicitly mapped, exact, sufficient BOM batch atomically', async () => {
 		const inventoryItem = { ...createInventoryItem('stock-item'), quantity: 10, precision: 'exact' as const };
+		const stockedOutItem = {
+			...inventoryItem,
+			quantity: 6,
+			revision: inventoryItem.revision + 1,
+			updatedAt: '2026-07-22T00:01:00.000Z',
+		};
 		const mapping = { lcscPartNumber: 0, quantity: 1, designators: 2, name: 3 };
 		const bomMappingPanel = {
 			open: vi.fn(async () => ({
@@ -998,16 +1250,27 @@ describe('nativeInventoryController.stockOutBomFile', () => {
 			name: 'assembly.csv',
 			content: new TextEncoder().encode('LCSC,Qty,Designators,Name\nC233991,2,"R1,R2",Resistor').buffer,
 		}]);
-		context.inventory.exportDocument.mockResolvedValue({
-			schemaVersion: 8,
-			revision: 7,
-			updatedAt: '2026-07-22T00:00:00.000Z',
-			categories: [],
-			items: [inventoryItem],
-			orderImportBatches: [],
-			transactions: [],
-			stockOutBatches: [],
-		});
+		context.inventory.exportDocument
+			.mockResolvedValueOnce({
+				schemaVersion: 8,
+				revision: 7,
+				updatedAt: '2026-07-22T00:00:00.000Z',
+				categories: [],
+				items: [inventoryItem],
+				orderImportBatches: [],
+				transactions: [],
+				stockOutBatches: [],
+			})
+			.mockResolvedValueOnce({
+				schemaVersion: 8,
+				revision: 8,
+				updatedAt: '2026-07-22T00:01:00.000Z',
+				categories: [],
+				items: [stockedOutItem],
+				orderImportBatches: [],
+				transactions: [],
+				stockOutBatches: [],
+			});
 		context.inventory.previewBomStockOut.mockResolvedValue(preview);
 		context.inventory.commitBomStockOut.mockResolvedValue({
 			batch: {},
@@ -1024,12 +1287,28 @@ describe('nativeInventoryController.stockOutBomFile', () => {
 			lines: [{ itemId: inventoryItem.id, quantity: 4, sourceReference: 'R1, R2' }],
 		}));
 		expect(context.inventory.commitBomStockOut).toHaveBeenCalledWith(expect.any(Object), 7);
+		expect(context.inventoryOverviewPanel.updateSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ items: [expect.objectContaining({ id: inventoryItem.id, quantity: 6 })] }),
+			context.trace,
+		);
 		expect(bomStockOutPanel.open).toHaveBeenCalledOnce();
 	});
 });
 
 describe('nativeInventoryController.openInventoryTransactions', () => {
 	it('revalidates and reverses a complete stock-out batch before refreshing the ledger', async () => {
+		const stockedOutItem = {
+			...createInventoryItem('stock-item'),
+			quantity: 8,
+			precision: 'exact' as const,
+			revision: 2,
+		};
+		const restoredItem = {
+			...stockedOutItem,
+			quantity: 10,
+			revision: 3,
+			updatedAt: '2026-07-22T01:00:00.000Z',
+		};
 		const batch = {
 			id: 'batch-1',
 			fingerprint: 'a'.repeat(64),
@@ -1084,7 +1363,7 @@ describe('nativeInventoryController.openInventoryTransactions', () => {
 			revision: 7,
 			updatedAt: '2026-07-22T00:00:00.000Z',
 			categories: [],
-			items: [],
+			items: [stockedOutItem],
 			orderImportBatches: [],
 			transactions: [transaction],
 			stockOutBatches: [batch],
@@ -1099,7 +1378,12 @@ describe('nativeInventoryController.openInventoryTransactions', () => {
 		};
 		context.inventory.exportDocument
 			.mockResolvedValueOnce(initial)
-			.mockResolvedValueOnce({ ...initial, revision: 8, stockOutBatches: [reversedBatch] });
+			.mockResolvedValueOnce({
+				...initial,
+				revision: 8,
+				items: [restoredItem],
+				stockOutBatches: [reversedBatch],
+			});
 		context.inventory.previewStockOutReversal.mockResolvedValue({
 			status: 'ready',
 			documentRevision: 7,
@@ -1128,6 +1412,10 @@ describe('nativeInventoryController.openInventoryTransactions', () => {
 			batch.id,
 			7,
 			'Incorrect assembly',
+		);
+		expect(context.inventoryOverviewPanel.updateSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ items: [expect.objectContaining({ id: stockedOutItem.id, quantity: 10 })] }),
+			context.trace,
 		);
 	});
 });
@@ -1376,6 +1664,87 @@ describe('nativeInventoryController.addByLcscPartNumber', () => {
 		expect(setup.diagnostics.start).toHaveBeenCalledWith('import-package-code');
 	});
 
+	it('refreshes the active overview after merging a duplicate from a package code', async () => {
+		const form = createForm({
+			lcscPartNumber: 'C559387',
+			supplierId: 'C559387',
+			name: 'MT-PACKAGE-A',
+			manufacturerPartNumber: 'MT-PACKAGE-A',
+			quantity: '5',
+		});
+		const draft = createDraft(form);
+		const existing = normalizeInventoryItem(
+			{ ...draft, quantity: 10, source: 'manual' },
+			'2026-07-24T06:40:30.672Z',
+			'package-existing',
+		);
+		const merged = {
+			...existing,
+			quantity: 15,
+			revision: existing.revision + 1,
+			updatedAt: '2026-07-24T06:48:12.459Z',
+		};
+		const openPanel: InventoryCreatePanel['open'] = async (input, handleAction) => {
+			expect(input).toMatchObject({
+				mode: 'lcsc',
+				initial: {
+					lcscPartNumber: 'C559387',
+					supplierId: 'C559387',
+					name: 'MT-PACKAGE-A',
+					manufacturerPartNumber: 'MT-PACKAGE-A',
+					quantityMode: 'exact',
+					quantity: '5',
+				},
+			});
+			const duplicate = await handleAction({ type: 'save', operationId: 'save', form, draft });
+			expect(duplicate.stage).toBe('duplicate');
+			if (duplicate.stage !== 'duplicate') {
+				throw new Error('Expected duplicate result.');
+			}
+			const confirmed = await handleAction({
+				type: 'confirm-merge',
+				operationId: 'merge',
+				form,
+				draft,
+				duplicateToken: duplicate.duplicateToken,
+				existing: { id: duplicate.existing.id, expectedRevision: duplicate.existing.revision },
+			});
+			expect(confirmed.stage).toBe('succeeded');
+			return { status: 'saved', draft, merged: true };
+		};
+		const setup = createController(
+			vi.fn(),
+			['{pc:C559387,pm:MT-PACKAGE-A,qty:5}'],
+			[],
+			undefined,
+			undefined,
+			openPanel,
+		);
+		setup.inventory.list
+			.mockResolvedValueOnce([existing])
+			.mockResolvedValue([merged]);
+		setup.inventory.createItem
+			.mockResolvedValueOnce({
+				status: 'duplicate',
+				candidate: normalizeInventoryItem({ ...draft, source: 'manual' }, '2026-07-24T06:48:00.550Z', 'package-candidate'),
+				existing,
+			})
+			.mockResolvedValueOnce({ status: 'merged', item: merged });
+
+		await setup.controller.importPackageCode();
+
+		expect(setup.inventory.createItem).toHaveBeenCalledTimes(2);
+		expect(setup.inventory.createItem).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ quantity: 5 }),
+			{ id: existing.id, expectedRevision: existing.revision },
+		);
+		expect(setup.inventoryOverviewPanel.updateSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ items: [expect.objectContaining({ id: existing.id, quantity: 15 })] }),
+			setup.trace,
+		);
+	});
+
 	it('rejects an invalid package code before opening the create form', async () => {
 		const setup = createController(vi.fn(), ['pm:missing-c-number'], []);
 
@@ -1530,7 +1899,11 @@ describe('nativeInventoryController.addByLcscPartNumber', () => {
 			await handleAction({ type: 'save', operationId: 'save', form, draft });
 			return { status: 'saved', draft, merged: false };
 		};
-		const { controller, dialog, inventory } = createController(vi.fn(), [], [], undefined, undefined, openPanel);
+		const { controller, dialog, inventory, inventoryOverviewPanel, trace } = createController(vi.fn(), [], [], undefined, undefined, openPanel);
+		inventory.list.mockImplementation(async () => {
+			const saved = inventory.createItem.mock.results.at(-1)?.value;
+			return saved ? [(await saved).item] : [];
+		});
 
 		await controller.addCustomComponent();
 
@@ -1540,6 +1913,10 @@ describe('nativeInventoryController.addByLcscPartNumber', () => {
 			quantity: 3,
 			source: 'manual',
 		}));
+		expect(inventoryOverviewPanel.updateSnapshot).toHaveBeenCalledWith(
+			expect.objectContaining({ items: [expect.objectContaining({ id: 'saved-item' })] }),
+			trace,
+		);
 	});
 });
 
@@ -1663,6 +2040,45 @@ describe('nativeInventoryController inventory management', () => {
 		expect(context.dialog.info).not.toHaveBeenCalledWith('inventory.empty');
 	});
 
+	it('reloads inventory before handling an item pushed by another controller instance', async () => {
+		const existing = createInventoryItem('existing-item');
+		const externallyCreated = createInventoryItem('externally-created');
+		const context = createController(vi.fn(), [], []);
+		const document = (items: InventoryItem[], revision: number) => ({
+			schemaVersion: 9 as const,
+			revision,
+			updatedAt: '2026-07-24T06:22:53.887Z',
+			categories: [],
+			items,
+			orderImportBatches: [],
+			transactions: [],
+			stockOutBatches: [],
+			projectSnapshots: [],
+			purchaseRecords: [],
+			substituteLinks: [],
+		});
+		context.inventory.exportDocument
+			.mockResolvedValueOnce(document([existing], 1))
+			.mockResolvedValueOnce(document([existing, externallyCreated], 2))
+			.mockResolvedValue(document([existing, externallyCreated], 2));
+		context.inventoryItemPanel.view.mockResolvedValue(undefined);
+		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
+			await onOperation({
+				operationId: 'operation-view-external-item',
+				intent: {
+					type: 'view-item',
+					item: { id: externallyCreated.id, expectedRevision: externallyCreated.revision },
+					viewState: overviewViewState,
+				},
+			});
+		});
+
+		await context.controller.openInventory();
+
+		expect(context.inventoryItemPanel.view).toHaveBeenCalledWith(externallyCreated);
+		expect(context.inventory.exportDocument).toHaveBeenCalledTimes(3);
+	});
+
 	it('exports the replenishment list from the overview with a stable dated file name', async () => {
 		const lowItem = { ...createInventoryItem('low-item'), minimumQuantity: 40 };
 		const sufficientItem = { ...createInventoryItem('sufficient-item'), minimumQuantity: 10 };
@@ -1693,13 +2109,11 @@ describe('nativeInventoryController inventory management', () => {
 		);
 		const csv = context.files.saveCsv.mock.calls[0]?.[0] as string;
 		expect(csv.match(/"C233991"/g)).toHaveLength(1);
-		expect(operationResult).toMatchObject({
-			status: 'succeeded',
-			message: 'inventoryOverview.exportReplenishmentSucceeded',
-		});
+		expect(operationResult).toMatchObject({ status: 'succeeded' });
+		expect(operationResult).not.toHaveProperty('message');
 	});
 
-	it('returns explicit cancelled and failed feedback for replenishment file saves', async () => {
+	it('closes cancelled replenishment saves silently and reports explicit failures', async () => {
 		const context = createController(vi.fn(), [], []);
 		const item = { ...createInventoryItem(), minimumQuantity: 40 };
 		context.inventory.exportDocument.mockResolvedValue({
@@ -1728,16 +2142,12 @@ describe('nativeInventoryController inventory management', () => {
 
 		await context.controller.openInventory();
 
-		expect(results).toEqual([
-			expect.objectContaining({
-				status: 'cancelled',
-				message: 'inventoryOverview.exportReplenishmentCancelled',
-			}),
-			expect.objectContaining({
-				status: 'failed',
-				message: 'inventoryOverview.exportReplenishmentFailed',
-			}),
-		]);
+		expect(results[0]).toMatchObject({ status: 'cancelled' });
+		expect(results[0]).not.toHaveProperty('message');
+		expect(results[1]).toMatchObject({
+			status: 'failed',
+			message: 'inventoryOverview.exportReplenishmentFailed',
+		});
 	});
 
 	it('opens the overview with real inventory rows and routes its view intent', async () => {

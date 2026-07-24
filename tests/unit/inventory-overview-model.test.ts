@@ -15,12 +15,14 @@ import {
 	inventoryCategoryCounts,
 	inventoryItemsForCategoryDrop,
 	inventoryItemsForDrag,
+	inventoryOverviewDesignSelectionWarning,
 	inventoryOverviewFocusPage,
 	inventoryOverviewLcscPartNumber,
 	inventoryOverviewLocationLabel,
 	inventoryOverviewPackageLabel,
 	inventoryOverviewPlacementBlocker,
 	loadInventoryOverviewColumnPreferences,
+	normalizeOverviewViewState,
 	paginateInventory,
 	parseInventoryOverviewColumnPreferences,
 	reorderCategorySiblings,
@@ -32,9 +34,7 @@ import {
 	saveInventoryOverviewColumnPreferences,
 	selectInventoryOverviewCategory,
 	setInventoryOverviewColumnVisibility,
-	shouldAutoHideInventoryOverview,
 	shouldClearAppliedSearch,
-	shouldSuppressAutoHideForWindowControl,
 	updateFilteredInventorySelection,
 } from '../../src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview-model';
 
@@ -191,6 +191,91 @@ describe('inventory overview model', () => {
 			modelFilter: 'available',
 		});
 		expect(result.map(item => item.id)).toEqual(['exact-stock']);
+	});
+
+	it('restricts results to exact design-selection item IDs before other filters', () => {
+		const result = filterAndSortInventory(items, categories, {
+			...defaultState,
+			designSelection: {
+				itemIds: ['exact-stock', 'contains'],
+				componentCount: 3,
+				unmatchedComponentCount: 1,
+			},
+		});
+
+		expect(result.map(item => item.id)).toEqual(['contains', 'exact-stock']);
+		expect(filterAndSortInventory(items, categories, {
+			...defaultState,
+			designSelection: {
+				itemIds: ['exact'],
+				componentCount: 1,
+				unmatchedComponentCount: 0,
+			},
+		})).toEqual([]);
+	});
+
+	it('normalizes design-selection IDs against the current request items', () => {
+		const unmatchedComponentLabels = ['R5 (C500)', 'U2 (MPN-2)'];
+		const state = normalizeOverviewViewState({
+			...defaultState,
+			designSelection: {
+				itemIds: ['exact-stock', 'missing', 'exact-stock', 'contains'],
+				componentCount: 5,
+				unmatchedComponentCount: 2,
+				unmatchedComponentLabels,
+			},
+		}, categories, items);
+
+		expect(state.designSelection).toEqual({
+			itemIds: ['exact-stock', 'contains'],
+			componentCount: 5,
+			unmatchedComponentCount: 2,
+			unmatchedComponentLabels,
+		});
+		expect(state.designSelection?.unmatchedComponentLabels).not.toBe(unmatchedComponentLabels);
+		expect(normalizeOverviewViewState({
+			...defaultState,
+			designSelection: {
+				itemIds: ['missing'],
+				componentCount: 1,
+				unmatchedComponentCount: 0,
+			},
+		}, categories, items).designSelection).toEqual({
+			itemIds: [],
+			componentCount: 1,
+			unmatchedComponentCount: 0,
+		});
+		expect(filterAndSortInventory(items, categories, {
+			...defaultState,
+			designSelection: {
+				itemIds: [],
+				componentCount: 1,
+				unmatchedComponentCount: 0,
+			},
+		})).toEqual([]);
+	});
+
+	it('shows a warning only for a partial design selection and reports omitted labels', () => {
+		const labels = ['U1 (C900001)', 'U2 (MPN-2)'];
+		const warning = inventoryOverviewDesignSelectionWarning({
+			itemIds: ['exact-stock'],
+			componentCount: 5,
+			unmatchedComponentCount: 3,
+			unmatchedComponentLabels: labels,
+		}, 1);
+
+		expect(warning).toEqual({
+			componentLabels: labels,
+			omittedComponentCount: 1,
+			matchedInventoryCount: 1,
+		});
+		expect(warning?.componentLabels).not.toBe(labels);
+		expect(inventoryOverviewDesignSelectionWarning({
+			itemIds: ['exact-stock'],
+			componentCount: 1,
+			unmatchedComponentCount: 0,
+		}, 1)).toBeUndefined();
+		expect(inventoryOverviewDesignSelectionWarning(undefined, 4)).toBeUndefined();
 	});
 
 	it('filters replenishment and favorite states independently', () => {
@@ -369,37 +454,6 @@ describe('inventory overview model', () => {
 		expect(container).toEqual({ scrollLeft: 96, scrollTop: 734 });
 		expect(captureInventoryOverviewScroll(undefined)).toBeUndefined();
 		expect(() => restoreInventoryOverviewScroll(undefined, position)).not.toThrow();
-	});
-
-	it('auto-hides only when blur returns focus to the EDA window', () => {
-		expect(shouldAutoHideInventoryOverview(true, false, true, true)).toBe(true);
-		expect(shouldAutoHideInventoryOverview(true, false, true, false)).toBe(false);
-		expect(shouldAutoHideInventoryOverview(false, false, true, true)).toBe(false);
-		expect(shouldAutoHideInventoryOverview(true, true, true, true)).toBe(false);
-		expect(shouldAutoHideInventoryOverview(true, false, false, true)).toBe(false);
-	});
-
-	it('keeps a native minimized title window visible after iframe blur', () => {
-		expect(shouldSuppressAutoHideForWindowControl({
-			action: 'minimize',
-			requestId: 'request-1',
-			timestamp: 1_000,
-		}, 'request-1', 1_250)).toBe(true);
-		expect(shouldSuppressAutoHideForWindowControl({
-			action: 'maximize',
-			requestId: 'request-1',
-			timestamp: 1_000,
-		}, 'request-1', 1_250)).toBe(true);
-		expect(shouldSuppressAutoHideForWindowControl({
-			action: 'minimize',
-			requestId: 'stale-request',
-			timestamp: 1_000,
-		}, 'request-1', 1_250)).toBe(false);
-		expect(shouldSuppressAutoHideForWindowControl({
-			action: 'minimize',
-			requestId: 'request-1',
-			timestamp: 1_000,
-		}, 'request-1', 2_001)).toBe(false);
 	});
 
 	it('uses inventory package, then EDA footprint, and an em dash only when both are absent', () => {

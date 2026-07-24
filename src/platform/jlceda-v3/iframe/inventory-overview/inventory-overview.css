@@ -18,6 +18,7 @@
 	--danger-subtle: #fff1ef;
 	--success: #18794e;
 	--warning: #9a6700;
+	--warning-subtle: #fff7e6;
 }
 
 * {
@@ -579,6 +580,16 @@ select:focus,
 .result-summary {
 	margin: 0;
 	color: var(--muted);
+}
+
+.design-selection-warning {
+	margin: 0 0 10px;
+	padding: 10px 12px;
+	border-left: 4px solid var(--warning);
+	background: var(--warning-subtle);
+	color: var(--warning);
+	line-height: 1.5;
+	overflow-wrap: anywhere;
 }
 
 .bulk-toolbar {
@@ -1165,6 +1176,7 @@ select:focus,
 		--danger-subtle: #432829;
 		--success: #65d29c;
 		--warning: #edbd5b;
+		--warning-subtle: #3b321f;
 	}
 }
 

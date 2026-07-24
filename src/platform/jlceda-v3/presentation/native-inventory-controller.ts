@@ -26,7 +26,7 @@ import type { BomStockOutPanel } from './bom-stock-out-panel';
 import type { DesignStockCheckPanel } from './design-stock-check-panel';
 import type { InventoryCreateActionOutcome, InventoryCreateDraft, InventoryCreateDuplicateSnapshot, InventoryCreateFormState, InventoryCreateMode, InventoryCreatePanel, InventoryCreatePanelAction } from './inventory-create-panel';
 import type { InventoryItemEditDraft, InventoryItemPanel } from './inventory-item-panel';
-import type { InventoryOverviewIntent, InventoryOverviewOperationResult, InventoryOverviewPanel, InventoryOverviewViewState } from './inventory-overview-panel';
+import type { InventoryOverviewInput, InventoryOverviewIntent, InventoryOverviewOperationResult, InventoryOverviewPanel, InventoryOverviewViewState } from './inventory-overview-panel';
 import type { InventoryTransactionsPanel } from './inventory-transactions-panel';
 import type { Diagnostics, DiagnosticTrace } from './native-diagnostics';
 import type { InputOptions, NativeDialog, SelectOption } from './native-dialog';
@@ -54,6 +54,10 @@ import { createProjectSnapshot } from '../../../features/project-planning/applic
 import { diffProjectSnapshots } from '../../../features/project-planning/application/diff-project-snapshots';
 import { createProcurementCsv } from '../../../features/project-planning/application/export-procurement-csv';
 import { AutomaticBackupFolderPickerError, InvalidAutomaticBackupFolderError } from '../persistence/automatic-inventory-backup';
+import {
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH,
+	MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS,
+} from './inventory-overview-panel';
 
 const ORDER_IMPORT_MODEL_CONCURRENCY = 4;
 
@@ -102,7 +106,15 @@ interface PendingOrderImportPreview {
 	settings: OrderImportPanelSettings;
 }
 
+type InventoryOverviewDocument = Awaited<ReturnType<InventoryService['exportDocument']>>;
+
+interface InventoryOverviewSessionContext {
+	document: InventoryOverviewDocument;
+}
+
 export class NativeInventoryController {
+	private readonly inventoryOverviewSessions = new Set<InventoryOverviewSessionContext>();
+
 	public constructor(
 		private readonly inventory: InventoryService,
 		private readonly edaModels: EdaModelCatalog,
@@ -137,32 +149,73 @@ export class NativeInventoryController {
 		return this.execute(() => this.runInventoryOverview(initialState, trace), trace);
 	}
 
-	private async runInventoryOverview(initialState: InventoryOverviewViewState | undefined, trace: DiagnosticTrace): Promise<void> {
-		let document = await this.inventory.exportDocument();
+	private async runInventoryOverview(
+		initialState: InventoryOverviewViewState | undefined,
+		trace: DiagnosticTrace,
+		options: Pick<InventoryOverviewInput, 'replaceActiveSession'> = {},
+	): Promise<void> {
+		const context = { document: await this.inventory.exportDocument() };
+		this.inventoryOverviewSessions.add(context);
+		this.synchronizeInventoryOverviewSessions(context.document);
 		const pendingModelMatches = new Map<string, PendingOverviewModelMatch>();
 		const pendingDuplicateMatches = new Map<string, PendingOverviewDuplicateMatch>();
-		await this.inventoryOverviewPanel.open({
-			items: document.items,
-			categories: document.categories,
-			initialState,
-		}, async (operation) => {
-			const result = await this.handleInventoryOverviewIntent(
-				operation.intent,
-				document.items,
-				document.categories,
-				pendingModelMatches,
-				pendingDuplicateMatches,
+		try {
+			await this.inventoryOverviewPanel.open({
+				items: context.document.items,
+				categories: context.document.categories,
+				initialState,
+				...options,
+			}, async (operation) => {
+				context.document = await this.inventory.exportDocument();
+				this.synchronizeInventoryOverviewSessions(context.document);
+				const result = await this.handleInventoryOverviewIntent(
+					operation.intent,
+					context.document.items,
+					context.document.categories,
+					pendingModelMatches,
+					pendingDuplicateMatches,
+					trace,
+				);
+				if (result.status === 'model-match'
+					|| result.status === 'duplicate-match'
+					|| result.status === 'model-missing'
+					|| result.status === 'failed') {
+					return result;
+				}
+				context.document = await this.inventory.exportDocument();
+				this.synchronizeInventoryOverviewSessions(context.document);
+				return {
+					...result,
+					snapshot: { items: context.document.items, categories: context.document.categories },
+				};
+			}, trace);
+		}
+		finally {
+			this.inventoryOverviewSessions.delete(context);
+		}
+	}
+
+	private synchronizeInventoryOverviewSessions(document: InventoryOverviewDocument): void {
+		for (const session of this.inventoryOverviewSessions) {
+			session.document = document;
+		}
+	}
+
+	private async synchronizeInventoryOverviewAfterMutation(
+		trace: DiagnosticTrace,
+		document?: InventoryOverviewDocument,
+	): Promise<void> {
+		try {
+			const latest = document ?? await this.inventory.exportDocument();
+			this.synchronizeInventoryOverviewSessions(latest);
+			await this.inventoryOverviewPanel.updateSnapshot(
+				{ items: latest.items, categories: latest.categories },
 				trace,
 			);
-			if (result.status === 'model-match'
-				|| result.status === 'duplicate-match'
-				|| result.status === 'model-missing'
-				|| result.status === 'failed') {
-				return result;
-			}
-			document = await this.inventory.exportDocument();
-			return { ...result, snapshot: { items: document.items, categories: document.categories } };
-		}, trace);
+		}
+		catch (error) {
+			trace.warn('inventory-overview.snapshot-sync.failed', { errorName: errorName(error) });
+		}
 	}
 
 	public addByLcscPartNumber(): Promise<void> {
@@ -235,28 +288,41 @@ export class NativeInventoryController {
 				this.dialog.info(this.t('selectedInventory.empty'), this.t('selectedInventory.title'));
 				return;
 			}
-			const component = await this.chooseSelectedDesignComponent(result.snapshot.components);
-			if (!component) {
-				return;
-			}
+			const components = result.snapshot.components;
 			const document = await this.inventory.exportDocument();
-			const matches = document.items.filter(item => matchesSelectedDesignComponent(item, component));
-			let item: InventoryItem | undefined;
-			if (matches.length === 1) {
-				item = matches[0];
-			}
-			else if (matches.length > 1) {
-				const selectedId = await this.dialog.select(
-					matches.map(candidate => ({ value: candidate.id, label: this.formatItemLine(candidate) })),
-					this.t('selectedInventory.title'),
-					this.t('selectedInventory.chooseInventory'),
-				);
-				item = matches.find(candidate => candidate.id === selectedId);
-				if (!item) {
-					return;
+			const matchedItemIds = new Set<string>();
+			let unmatchedComponentCount = 0;
+			const unmatchedComponentLabels: string[] = [];
+			for (const component of components) {
+				let componentMatched = false;
+				for (const item of document.items) {
+					if (!matchesSelectedDesignComponent(item, component)) {
+						continue;
+					}
+					componentMatched = true;
+					matchedItemIds.add(item.id);
+				}
+				if (!componentMatched) {
+					unmatchedComponentCount += 1;
+					if (unmatchedComponentLabels.length < MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABELS) {
+						unmatchedComponentLabels.push(formatUnmatchedDesignComponentLabel(component));
+					}
 				}
 			}
-			if (!item) {
+			trace.info('selected-components.matches', {
+				componentCount: components.length,
+				matchedItemCount: matchedItemIds.size,
+				unmatchedComponentCount,
+			});
+			if (matchedItemIds.size === 0) {
+				if (components.length > 1) {
+					this.dialog.info(
+						this.t('selectedInventory.noneMatched', components.length),
+						this.t('selectedInventory.title'),
+					);
+					return;
+				}
+				const component = components[0]!;
 				if (!await this.dialog.confirm(
 					this.t('selectedInventory.offerAdd', component.designator ?? component.name ?? component.lcscPartNumber ?? '-'),
 					this.t('selectedInventory.title'),
@@ -276,10 +342,14 @@ export class NativeInventoryController {
 				}, trace);
 				return;
 			}
-			const query = item.identity.lcscPartNumber
-				?? item.identity.manufacturerPartNumber
-				?? item.identity.name;
-			await this.runInventoryOverview(createOverviewSearchState(query, item.id), trace);
+			const matchedItems = document.items.filter(item => matchedItemIds.has(item.id));
+			await this.runInventoryOverview(createDesignSelectionOverviewState(
+				matchedItems.map(item => item.id),
+				components.length,
+				unmatchedComponentCount,
+				unmatchedComponentLabels,
+				matchedItems.length === 1 ? matchedItems[0]!.id : undefined,
+			), trace, { replaceActiveSession: true });
 		}, trace);
 	}
 
@@ -406,6 +476,7 @@ export class NativeInventoryController {
 						note,
 					);
 					const refreshed = await this.inventory.exportDocument();
+					await this.synchronizeInventoryOverviewAfterMutation(trace, refreshed);
 					trace.info('inventory-transactions.batch-reversed', {
 						lineCount: result.transactions.length,
 						documentRevision: result.documentRevision,
@@ -961,6 +1032,7 @@ export class NativeInventoryController {
 					lineCount: result.transactions.length,
 					documentRevision: result.documentRevision,
 				});
+				await this.synchronizeInventoryOverviewAfterMutation(trace);
 				return { status: 'succeeded', message: this.t('bomStockOut.completed', result.transactions.length) };
 			}
 			catch (error) {
@@ -1498,23 +1570,6 @@ export class NativeInventoryController {
 		};
 	}
 
-	private async chooseSelectedDesignComponent(
-		components: readonly DesignComponentSnapshot[],
-	): Promise<DesignComponentSnapshot | undefined> {
-		if (components.length === 1) {
-			return components[0];
-		}
-		const selectedPrimitiveId = await this.dialog.select(
-			components.map(component => ({
-				value: component.primitiveId,
-				label: formatSelectedDesignComponent(component),
-			})),
-			this.t('selectedInventory.title'),
-			this.t('selectedInventory.chooseComponent'),
-		);
-		return components.find(component => component.primitiveId === selectedPrimitiveId);
-	}
-
 	public importEdaCategories(): Promise<void> {
 		return this.execute(async () => {
 			const result = await this.importEdaCategoriesCore();
@@ -1606,6 +1661,7 @@ export class NativeInventoryController {
 		if (!session.savedItem) {
 			throw new Error('The inventory create panel completed without a saved inventory item.');
 		}
+		await this.synchronizeInventoryOverviewAfterMutation(trace);
 		this.showSavedItem(session.savedItem);
 		trace.info('workflow.success', { merged: result.merged });
 	}
@@ -1902,11 +1958,12 @@ export class NativeInventoryController {
 							createReplenishmentCsv(items, this.replenishmentCsvLabels()),
 							`jlceda-inventory-replenishment-${new Date().toISOString().slice(0, 10)}.csv`,
 						);
-						return { status: 'succeeded', message: this.t('inventoryOverview.exportReplenishmentSucceeded') };
+						// The host may resolve at dialog handoff, before the user finishes saving.
+						return { status: 'succeeded' };
 					}
 					catch (error) {
 						if (isCancelledFileSave(error)) {
-							return { status: 'cancelled', message: this.t('inventoryOverview.exportReplenishmentCancelled') };
+							return { status: 'cancelled' };
 						}
 						return { status: 'failed', message: this.t('inventoryOverview.exportReplenishmentFailed') };
 					}
@@ -2860,15 +2917,6 @@ function matchesSelectedDesignComponent(item: InventoryItem, component: DesignCo
 	return Boolean(componentMpn && itemMpn === componentMpn);
 }
 
-function formatSelectedDesignComponent(component: DesignComponentSnapshot): string {
-	return [
-		component.designator,
-		component.lcscPartNumber,
-		component.manufacturerPartNumber,
-		component.name,
-	].filter((value): value is string => Boolean(value)).join(' | ');
-}
-
 function toStockDesignComponent(component: DesignComponentSnapshot): StockDesignComponentSnapshot {
 	return {
 		designator: component.designator,
@@ -2897,10 +2945,24 @@ function bomDemandToStockComponent(demand: BomDesignDemand): StockDesignComponen
 	};
 }
 
-function createOverviewSearchState(query: string, focusItemId?: string): InventoryOverviewViewState {
+function createDesignSelectionOverviewState(
+	itemIds: string[],
+	componentCount: number,
+	unmatchedComponentCount: number,
+	unmatchedComponentLabels: string[],
+	focusItemId?: string,
+): InventoryOverviewViewState {
 	return {
-		query,
+		query: '',
 		focusItemId,
+		designSelection: {
+			itemIds,
+			componentCount,
+			unmatchedComponentCount,
+			...(unmatchedComponentLabels.length > 0
+				? { unmatchedComponentLabels: [...unmatchedComponentLabels] }
+				: {}),
+		},
 		searchScope: 'all',
 		categoryId: 'all',
 		stockFilter: 'all',
@@ -2909,6 +2971,26 @@ function createOverviewSearchState(query: string, focusItemId?: string): Invento
 		page: 1,
 		pageSize: 50,
 	};
+}
+
+function formatUnmatchedDesignComponentLabel(component: DesignComponentSnapshot): string {
+	const designator = normalizeComponentLabelText(component.designator);
+	const normalizedPartNumber = normalizeLcscPartNumber(component.lcscPartNumber);
+	const identity = normalizedPartNumber && /^C\d+$/.test(normalizedPartNumber)
+		? normalizedPartNumber
+		: normalizeComponentLabelText(component.manufacturerPartNumber)
+			|| normalizeComponentLabelText(component.name);
+	const fallback = normalizeComponentLabelText(component.primitiveId) || '-';
+	const label = designator && identity && designator !== identity
+		? `${designator} (${identity})`
+		: designator || identity || fallback;
+	return label.length <= MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH
+		? label
+		: `${label.slice(0, MAX_INVENTORY_OVERVIEW_UNMATCHED_COMPONENT_LABEL_LENGTH - 3)}...`;
+}
+
+function normalizeComponentLabelText(value: string | undefined): string {
+	return normalizeInventoryText(value ?? '').replace(/\s+/gu, ' ');
 }
 
 function createPlacementOverviewState(): InventoryOverviewViewState {

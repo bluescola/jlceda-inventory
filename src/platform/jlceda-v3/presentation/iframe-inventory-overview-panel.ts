@@ -8,18 +8,22 @@ import type {
 	InventoryOverviewInput,
 	InventoryOverviewOperationHandler,
 	InventoryOverviewPanel,
+	InventoryOverviewSnapshot,
 } from './inventory-overview-panel';
 import type { DiagnosticTrace } from './native-diagnostics';
 import {
 	createIFrameInventoryOverviewOperationResponse,
+	createIFrameInventoryOverviewSnapshotUpdate,
 	createInventoryOverviewRequest,
 	INVENTORY_OVERVIEW_IFRAME_ID,
 	INVENTORY_OVERVIEW_IFRAME_PATH,
 	INVENTORY_OVERVIEW_REQUEST_KEY,
 	INVENTORY_OVERVIEW_RESPONSE_KEY,
 	INVENTORY_OVERVIEW_RESULT_KEY,
-	INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY,
+	INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY,
+	parseIFrameInventoryOverviewRequest,
 	parseIFrameInventoryOverviewResult,
+	parseIFrameInventoryOverviewSnapshotUpdate,
 } from './iframe-inventory-overview-protocol';
 import { DIALOG_SETTLE_DELAY_MS } from './native-dialog';
 
@@ -27,11 +31,13 @@ const PANEL_WIDTH = 1240;
 const PANEL_HEIGHT = 800;
 const POLL_INTERVAL_MS = 100;
 const READY_TIMEOUT_MS = 10_000;
+const LEGACY_WINDOW_CONTROL_KEY = 'inventory-overview-panel.v2.window-control';
+
+const INVENTORY_OVERVIEW_MINIMIZE_STYLE = 'collapsed' as const;
 
 interface IFrameOpenOptions {
 	title: string;
 	onClose: () => void;
-	onWindowControl: (action: 'maximize' | 'minimize') => Promise<void>;
 }
 
 export interface InventoryOverviewIFrameHost {
@@ -60,43 +66,92 @@ type PanelOutcome
 	= | { status: 'cancelled' }
 		| { status: 'failed'; error: unknown; ready: boolean };
 
+interface InventoryOverviewSession {
+	cancelled: boolean;
+	opened: boolean;
+	updateSnapshot?: (
+		snapshot: InventoryOverviewSnapshot,
+		trace?: DiagnosticTrace,
+	) => Promise<boolean>;
+	retire?: () => void;
+}
+
 export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 	private queue: Promise<void> = Promise.resolve();
-	private sessionActive = false;
-	private sessionOpened = false;
+	private activeSession?: InventoryOverviewSession;
 
 	public constructor(
 		private readonly t: Translate,
 		private readonly host: InventoryOverviewIFrameHost = new EdaInventoryOverviewIFrameHost(),
 	) {}
 
+	public updateSnapshot(
+		snapshot: InventoryOverviewSnapshot,
+		trace?: DiagnosticTrace,
+	): Promise<boolean> {
+		const session = this.activeSession;
+		if (session && !session.cancelled && session.updateSnapshot) {
+			return session.updateSnapshot(snapshot, trace);
+		}
+		let request: IFrameInventoryOverviewRequest | undefined;
+		try {
+			request = parseIFrameInventoryOverviewRequest(this.host.read(INVENTORY_OVERVIEW_REQUEST_KEY));
+		}
+		catch (error) {
+			trace?.warn('inventory-overview-panel.snapshot-update.probe-failed', { errorName: errorName(error) });
+			return Promise.resolve(false);
+		}
+		if (!request) {
+			trace?.info('inventory-overview-panel.snapshot-update.skipped', { reason: 'no-host-session' });
+			return Promise.resolve(false);
+		}
+		trace?.info('inventory-overview-panel.snapshot-update.cross-instance', { status: 'found' });
+		return this.writeSnapshotUpdate(request.requestId, snapshot, trace);
+	}
+
 	public open(
 		input: InventoryOverviewInput,
 		onOperation: InventoryOverviewOperationHandler,
 		trace?: DiagnosticTrace,
 	): Promise<void> {
-		if (this.sessionActive) {
-			if (!this.sessionOpened) {
+		if (this.activeSession && !input.replaceActiveSession) {
+			if (!this.activeSession.opened) {
 				return Promise.resolve();
 			}
-			trace?.info('inventory-overview-panel.iframe.show.request');
-			return this.host.show().then((shown) => {
+			return this.updateSnapshot({ items: input.items, categories: input.categories }, trace).then(() => {
+				trace?.info('inventory-overview-panel.iframe.show.request');
+				return this.host.show();
+			}).then((shown) => {
 				trace?.info('inventory-overview-panel.iframe.show.response', { status: shown ? 'shown' : 'failed' });
 				if (!shown) {
 					throw new InventoryOverviewPanelUnavailableError('init-failed');
 				}
 			});
 		}
-		this.sessionActive = true;
+		const previousSession = this.activeSession;
+		const session: InventoryOverviewSession = { cancelled: false, opened: false };
+		this.activeSession = session;
+		if (previousSession) {
+			trace?.info('inventory-overview-panel.iframe.replace.request');
+			previousSession.cancelled = true;
+			previousSession.retire?.();
+		}
 		return this.enqueue(async () => {
 			try {
+				if (session.cancelled) {
+					return;
+				}
 				await this.closeStaleHostSession(trace);
+				if (session.cancelled) {
+					return;
+				}
 				const request = createInventoryOverviewRequest(createRequestId(), this.labels(), input);
-				await this.openExclusive(request, onOperation, trace);
+				await this.openExclusive(request, onOperation, session, trace);
 			}
 			finally {
-				this.sessionActive = false;
-				this.sessionOpened = false;
+				if (this.activeSession === session) {
+					this.activeSession = undefined;
+				}
 			}
 		});
 	}
@@ -141,6 +196,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 	private async openExclusive(
 		request: IFrameInventoryOverviewRequest,
 		onOperation: InventoryOverviewOperationHandler,
+		session: InventoryOverviewSession,
 		trace?: DiagnosticTrace,
 	): Promise<PanelOutcome> {
 		const timerId = `${INVENTORY_OVERVIEW_IFRAME_ID}.${request.requestId}`;
@@ -154,6 +210,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		const observedStages = new Set<string>();
 		const observedOperations = new Set<string>();
 		let operationQueue: Promise<void> = Promise.resolve();
+		let snapshotUpdateQueue: Promise<boolean> = Promise.resolve(true);
 		let resolveOutcome: (outcome: PanelOutcome) => void = () => undefined;
 		const outcomePromise = new Promise<PanelOutcome>((resolve) => {
 			resolveOutcome = (outcome) => {
@@ -164,6 +221,21 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				resolve(outcome);
 			};
 		});
+		const updateSnapshot = (
+			snapshot: InventoryOverviewSnapshot,
+			updateTrace?: DiagnosticTrace,
+		): Promise<boolean> => {
+			const writeUpdate = async (): Promise<boolean> => {
+				if (session.cancelled || settled || nativeCloseRequested
+					|| !this.bridgeValueBelongsToRequest(INVENTORY_OVERVIEW_REQUEST_KEY, request.requestId, updateTrace)) {
+					updateTrace?.info('inventory-overview-panel.snapshot-update.skipped', { reason: 'inactive' });
+					return false;
+				}
+				return this.writeSnapshotUpdate(request.requestId, snapshot, updateTrace);
+			};
+			snapshotUpdateQueue = snapshotUpdateQueue.then(writeUpdate, writeUpdate);
+			return snapshotUpdateQueue;
+		};
 		const stopAfterReadFailure = (error: unknown): void => {
 			if (ready) {
 				trace?.warn('inventory-overview-panel.iframe.read.stopped', {
@@ -233,7 +305,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				stopAfterReadFailure(error);
 			}
 		};
-		const processNativeClose = (): void => {
+		const retireSession = (): void => {
 			if (settled || nativeCloseRequested) {
 				return;
 			}
@@ -243,6 +315,10 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				() => resolveOutcome({ status: 'cancelled' }),
 			);
 		};
+		session.retire = retireSession;
+		if (session.cancelled) {
+			retireSession();
+		}
 		const poll = (): void => {
 			if (nativeCloseRequested) {
 				return;
@@ -271,19 +347,33 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 		};
 
 		try {
+			if (session.cancelled) {
+				return await outcomePromise;
+			}
 			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESULT_KEY, trace);
 			await this.removeBridgeValue(INVENTORY_OVERVIEW_RESPONSE_KEY, trace);
-			await this.removeBridgeValue(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, trace);
+			await this.removeBridgeValue(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY, trace);
+			await this.removeBridgeValue(LEGACY_WINDOW_CONTROL_KEY, trace);
+			if (session.cancelled) {
+				return await outcomePromise;
+			}
 			if (!await this.host.write(INVENTORY_OVERVIEW_REQUEST_KEY, request)) {
 				throw new InventoryOverviewPanelUnavailableError('init-failed');
 			}
+			session.updateSnapshot = updateSnapshot;
 			trace?.info('inventory-overview-panel.iframe.request.stored', {
 				categoryCount: request.categories.length,
 				itemCount: request.items.length,
 			});
+			if (session.cancelled) {
+				return await outcomePromise;
+			}
 			pollStarted = this.host.startPolling(timerId, POLL_INTERVAL_MS, poll);
 			if (!pollStarted) {
 				throw new InventoryOverviewPanelUnavailableError('api-missing');
+			}
+			if (session.cancelled) {
+				return await outcomePromise;
 			}
 			trace?.info('inventory-overview-panel.iframe.open.request', {
 				height: PANEL_HEIGHT,
@@ -293,22 +383,12 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			});
 			opened = await this.host.open({
 				title: request.labels.title,
-				onClose: processNativeClose,
-				onWindowControl: async (action) => {
-					trace?.info('inventory-overview-panel.iframe.window-control', { status: action });
-					if (!await this.host.write(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, {
-						action,
-						requestId: request.requestId,
-						timestamp: Date.now(),
-					})) {
-						trace?.warn('inventory-overview-panel.iframe.window-control.rejected', { status: action });
-					}
-				},
+				onClose: retireSession,
 			});
 			if (!opened) {
 				throw new InventoryOverviewPanelUnavailableError('init-failed');
 			}
-			this.sessionOpened = true;
+			session.opened = !session.cancelled;
 			readyDeadline = Date.now() + READY_TIMEOUT_MS;
 			trace?.info('inventory-overview-panel.iframe.opened');
 			poll();
@@ -330,6 +410,13 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			throw new InventoryOverviewPanelUnavailableError('init-failed', { cause: error });
 		}
 		finally {
+			if (session.retire === retireSession) {
+				session.retire = undefined;
+			}
+			if (session.updateSnapshot === updateSnapshot) {
+				session.updateSnapshot = undefined;
+			}
+			await snapshotUpdateQueue.catch(() => false);
 			const ownsHostSession = this.bridgeValueBelongsToRequest(
 				INVENTORY_OVERVIEW_REQUEST_KEY,
 				request.requestId,
@@ -348,9 +435,9 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_REQUEST_KEY, request.requestId, trace);
 			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_RESULT_KEY, request.requestId, trace);
 			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_RESPONSE_KEY, request.requestId, trace);
-			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_WINDOW_CONTROL_KEY, request.requestId, trace);
+			await this.removeBridgeValueForRequest(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY, request.requestId, trace);
 			if (opened && ownsHostSession) {
-				this.sessionOpened = false;
+				session.opened = false;
 				try {
 					const closed = await this.host.close();
 					trace?.info('inventory-overview-panel.iframe.closed', { status: closed ? 'closed' : 'already-closed' });
@@ -414,6 +501,36 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			status: result.status,
 			type: operation.intent.type,
 		});
+	}
+
+	private async writeSnapshotUpdate(
+		requestId: string,
+		snapshot: InventoryOverviewSnapshot,
+		trace?: DiagnosticTrace,
+	): Promise<boolean> {
+		try {
+			const previous = parseIFrameInventoryOverviewSnapshotUpdate(
+				this.host.read(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY),
+				requestId,
+			);
+			const generatedSequence = Math.max(1, Date.now() * 1_000 + Math.floor(Math.random() * 1_000));
+			const sequence = Math.max(generatedSequence, (previous?.sequence ?? 0) + 1);
+			const written = await this.host.write(
+				INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY,
+				createIFrameInventoryOverviewSnapshotUpdate(requestId, sequence, snapshot),
+			);
+			trace?.info('inventory-overview-panel.snapshot-update.completed', {
+				categoryCount: snapshot.categories.length,
+				itemCount: snapshot.items.length,
+				sequence,
+				status: written ? 'stored' : 'rejected',
+			});
+			return written;
+		}
+		catch (error) {
+			trace?.warn('inventory-overview-panel.snapshot-update.failed', { errorName: errorName(error) });
+			return false;
+		}
 	}
 
 	private async removeBridgeValue(key: string, trace?: DiagnosticTrace): Promise<void> {
@@ -514,6 +631,12 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			refresh: this.t('inventoryOverview.refresh'),
 			itemsCount: this.t('inventoryOverview.itemsCount'),
 			filteredCount: this.t('inventoryOverview.filteredCount'),
+			designSelectionCount: this.t('inventoryOverview.designSelectionCount'),
+			designSelectionCountWithUnmatched: this.t('inventoryOverview.designSelectionCountWithUnmatched'),
+			designSelectionUnmatchedWarning: this.t('inventoryOverview.designSelectionUnmatchedWarning'),
+			designSelectionUnmatchedWarningWithMore: this.t('inventoryOverview.designSelectionUnmatchedWarningWithMore'),
+			designSelectionUnmatchedWarningCountOnly: this.t('inventoryOverview.designSelectionUnmatchedWarningCountOnly'),
+			designSelectionUnmatchedSeparator: this.t('inventoryOverview.designSelectionUnmatchedSeparator'),
 			selectedCount: this.t('inventoryOverview.selectedCount'),
 			selectAllFiltered: this.t('inventoryOverview.selectAllFiltered'),
 			clearSelection: this.t('inventoryOverview.clearSelection'),
@@ -619,7 +742,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 	}
 }
 
-class EdaInventoryOverviewIFrameHost implements InventoryOverviewIFrameHost {
+export class EdaInventoryOverviewIFrameHost implements InventoryOverviewIFrameHost {
 	public read(key: string): unknown {
 		return eda.sys_Storage.getExtensionUserConfig(key);
 	}
@@ -645,13 +768,9 @@ class EdaInventoryOverviewIFrameHost implements InventoryOverviewIFrameHost {
 				grayscaleMask: false,
 				maximizeButton: true,
 				minimizeButton: true,
-				minimizeStyle: 'constricted',
+				minimizeStyle: INVENTORY_OVERVIEW_MINIMIZE_STYLE,
 				title: options.title,
-				buttonCallbackFn: button => button === 'close'
-					? options.onClose()
-					: button === 'minimize' || button === 'maximize'
-						? options.onWindowControl(button)
-						: undefined,
+				buttonCallbackFn: button => button === 'close' ? options.onClose() : undefined,
 			},
 		);
 	}
