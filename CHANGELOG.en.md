@@ -4,6 +4,49 @@
 
 # Changelog
 
+## 0.5.16 - 2026-07-24
+
+- Fix Project planning and procurement failing immediately when Capture current design is clicked because the JLCEDA extension sandbox does not provide the global `structuredClone`. Project-planning IFrame intents now use a JSON-safe deep copy after structural validation and no longer depend on that browser global.
+- Add a project-planning protocol regression with `structuredClone` unavailable and verify that nested snapshot ID arrays in purchase intents are detached from the bridge object. Both initial `0.5.15` capture attempts failed before reading the SCH; inventory stayed at revision `107` with zero demand snapshots and purchase records. F8 device testing must resume from the initial capture on `0.5.16`.
+
+## 0.5.15 - 2026-07-24
+
+- Make cross-controller inventory snapshot propagation data-only. Background writes such as component creation and package-code merging now replace inventory and category data without clearing search, resetting filters or design selection, changing pages, scrolling, or highlighting a row.
+- Remove the `focusItemId` navigation hint from snapshot updates, separating background data synchronization from explicit user navigation. Commands such as F3 may still establish a new selection scope and change the view, while ordinary inventory writes cannot move the user's current page.
+- Confirm from `0.5.14` device logs that cross-instance snapshots arrived without a manual refresh, while recording the unwanted clearing of the `C559387` search. Add protocol, active-session, cross-instance, and view-state preservation regressions. `0.5.15` device retests confirm that package-code merging and standalone custom-item creation both update the existing overview across controller instances without a manual refresh or reopen, while preserving the user's search and page position.
+- Fix BOM batch stock-out and batch reversal updating persistent inventory without notifying an open inventory overview. Every successful commit or reversal now reuses the same data-only snapshot push so quantities update in place while search, filters, sorting, pagination, and scroll position remain intact. A `0.5.15` verbose-build retest confirmed that stock-out revision `106` and reversal revision `107` each propagated across controller instances in the same second as the write, without a manual refresh, while final inventory and the forward/reversal ledger remained consistent.
+
+## 0.5.14 - 2026-07-24
+
+- Fix an open or minimized inventory overview retaining an old snapshot after a component is created from a separate menu command. The create command now discovers the active overview request through the host bridge and publishes the latest inventory to that request instead of relying on an `activeSession` visible only inside one controller instance.
+- After a successful create, clear a stale F3 design-selection scope and reveal the saved row. Reload current inventory before the old overview handles later view, edit, or model-match actions so a newly displayed row cannot fail against an outdated item set or revision.
+- Record the failed first fix from `0.5.13` verbose logs: inventory saved successfully at revision `90` with `86` items, but the update was incorrectly logged as `snapshot-update.skipped/inactive`. Add cross-controller, pushed-snapshot, and externally-created-row regressions for the `0.5.14` retest.
+
+## 0.5.13 - 2026-07-24
+
+- Fix the F3 partial-match state being too easy to miss. The overview now shows a dedicated warning above the table, identifies unmatched components by designator plus C-number, manufacturer part number, or name, and states how many matched inventory records remain visible.
+- Carry bounded unmatched-component summaries through the existing `designSelection` IFrame protocol with structural validation and deep cloning. Fully matched selections and Clear filters hide the warning, and no extra native confirmation dialog is introduced.
+- Record the verbose-log evidence: `0.5.12` correctly produced three matching inventory records and one unmatched component from a four-component selection, but the old muted summary failed the visibility requirement. The same `4/3/1` branch passed in `0.5.13` with the dedicated warning visible, the overview ready, and inventory unchanged at revision `86`, completing F3 acceptance. Earlier revisions `85/86` map to explicit user actions that created a category and an item, confirming that F3 matching itself did not write inventory.
+
+## 0.5.12 - 2026-07-24
+
+- Replace the native single-choice flow in Locate selected component in inventory with complete selection-set matching. Show every matched inventory record at once, deduplicate shared records by `item.id`, and keep every inventory record when one selected component matches duplicates.
+- Add a design-selection summary to the overview with selected-component, matched-inventory, and unmatched counts. Search and category filters can refine this exact scope, while Clear filters restores the complete inventory. Re-running locate while the overview remains visible, minimized, or hidden replaces the old session content with the new selection; if every scoped record disappears, the overview remains at zero results instead of revealing all inventory. A single unmatched component keeps the prefilled-create offer; a completely unmatched multi-selection only reports the result instead of choosing one component implicitly.
+- Record selection, match, and unmatched counts in diagnostics; add regressions for multi-selection, shared-record deduplication, duplicate inventory, partial/complete misses, protocol validation, and scope clearing; synchronize F3 manual guidance and the verified `0.5.11` legacy-flow result.
+
+## 0.5.11 - 2026-07-24
+
+- Fix the inventory overview being hidden while its native title bar is dragged. The IFrame `blur` plus EDA-window `focus` inference has been removed because the public API exposes neither window-move events nor the focus target, making title dragging indistinguishable from a workspace click.
+- Make overview visibility respond only to explicit actions. Moving the window, clicking the EDA workspace, or switching applications no longer hides it implicitly; native collapse, restore, and maximize remain available, Place still hides it and restores it on failure, and only explicit close ends the session.
+- Remove the window-control bridge and timing heuristics, clean up its legacy key, and add a code-boundary regression plus a focused W0 title-drag test.
+
+## 0.5.10 - 2026-07-24
+
+- Fix the inventory overview disappearing completely after native minimize. The host `minimizeStyle` now uses `collapsed` instead of `constricted`, whose current implementation folds the window width to `0`, so a full-width title bar remains available for restore.
+- Do not call `hideIFrame` when native collapse, restore, or maximize changes the IFrame viewport while it loses focus. Clicking the EDA workspace still auto-hides the overview, and reopening it from the menu preserves the browsing state.
+- Stop treating an early resolution from the host `saveFile()` call as proof that a replenishment CSV was saved. Successful handoff and cancellation now close silently, explicit host failures still show an export error, and the saved file remains the source of truth.
+- Add regression coverage for the minimize mode and resize blur sequence, and synchronize the README, window boundary, and focused W0 manual test.
+
 ## 0.5.9 - 2026-07-23
 
 - Reorder the inventory overview's default business columns by operational frequency and information priority: Name, Actions, Number, Stock, Package, EDA model, Location, Category, Replenishment, Minimum stock, and Updated. The leading selection checkbox remains a fixed control column outside this business order.
