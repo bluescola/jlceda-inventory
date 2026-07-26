@@ -16,6 +16,7 @@
 /.gitattributes
 /.gitignore
 /.npmrc
+/AGENTS.md
 /eslint.config.mjs
 /package-lock.json
 /package.json

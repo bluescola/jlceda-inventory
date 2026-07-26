@@ -4,6 +4,12 @@
 
 # Changelog
 
+## 0.5.17 - 2026-07-26
+
+- Remove the Retry EDA model matching action for unbound overview rows together with the `retry-model` and `attach-model` protocol intents, candidate-confirmation tokens, fuzzy-search adapter, and dedicated service mutation. Retired protocol requests are now rejected.
+- Close F4 as unsupported under the current JLCEDA host public capabilities and inventory identity boundary instead of tracking it as unfinished or requiring manual validation. Existing exact model lookup during item creation or a full C-number edit remains unchanged.
+- Synchronize the Chinese and English guides, architecture boundaries, research status, and manual test guide, and add regressions that prevent the retired entry and protocol from returning.
+
 ## 0.5.16 - 2026-07-24
 
 - Fix Project planning and procurement failing immediately when Capture current design is clicked because the JLCEDA extension sandbox does not provide the global `structuredClone`. Project-planning IFrame intents now use a JSON-safe deep copy after structural validation and no longer depend on that browser global.

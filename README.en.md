@@ -6,14 +6,14 @@
 
 A personal component inventory extension for JLCEDA Professional V3. It treats LCSC marketplace product information and JLCEDA device models as independent states and helps prioritize existing stock during schematic design.
 
-The current release is `0.5.16`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
+The current release is `0.5.17`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
 
 ## Implemented
 
 - Run read-only stock checks against the current schematic, PCB, or an external BOM. Aggregate demand by board quantity, distinguish exact shortages from review/stocktake/unmatched states, and export shortage CSV files.
 - Read CSV, TXT, XLS, and XLSX BOMs with text-encoding, worksheet, and header detection; map columns explicitly and compare two BOM versions for additions, removals, quantity changes, and identity changes. Stock check and stock-out accept exactly one BOM, version diff accepts exactly two, and each file is limited to 10 MiB, 32 worksheets, 128 columns per worksheet, and 10,000 data rows.
 - Store per-item minimum stock and favorites, filter/export replenishment and stocktake work, configure overview columns, and maintain datasheet URLs plus cabinet/box/row/column locations.
-- Read one or more selected SCH/PCB components, show all matching inventory records together with an unmatched count, deduplicate inventory by ID, and scroll-highlight a single result. Partial matches show a dedicated warning above the table with the missing designators and component identities. Locating again while the overview remains visible, minimized, or hidden replaces its old content with the new selection. EDA model rematching accepts only an exact result for the inventory record's current C number; a miss remains unbound and must not fall back to a name, manufacturer part number, or another C number. The legacy keyword-candidate entry still present in `0.5.13` is pending removal and is not considered a supported capability. Package QR input previews raw content plus parsed `pc`, `pm`, and `qty` before opening the existing inventory draft workflow.
+- Read one or more selected SCH/PCB components, show all matching inventory records together with an unmatched count, deduplicate inventory by ID, and scroll-highlight a single result. Partial matches show a dedicated warning above the table with the missing designators and component identities. Locating again while the overview remains visible, minimized, or hidden replaces its old content with the new selection. Existing inventory records do not offer EDA model rematching because the current host's public capabilities cannot provide it reliably within the inventory identity boundary. Version `0.5.17` removes the legacy keyword-candidate and cross-C binding entry and protocol; users are not expected to test this unsupported capability. Existing exact model lookup while creating an item or fully editing its C number remains available. Package QR input previews raw content plus parsed `pc`, `pm`, and `qty` before opening the existing inventory draft workflow.
 - Commit an explicitly confirmed BOM stock-out atomically, block semantic duplicates, allow a confirmed identical demand as a new production run, and reverse a complete batch with linked entries. This ledger covers only BOM stock-out and reversal, not ordinary edits or order receipt.
 - Persist project/document demand snapshots, show diffs before resynchronization, generate board-aware procurement suggestions, and store purchase/cost records separately. Demand snapshots and purchase records place Actions immediately after Name, while procurement suggestions prioritize the suggested quantity and status ahead of technical identifiers and source details. Purchase dates are stored as calendar-only `YYYY-MM-DD` values, with legacy timestamps normalized on read. User-confirmed substitute relationships are ranked for manual review only and never drive automatic matching or deduction.
 - On Desktop, initial automatic-backup setup opens the native folder picker directly. After a folder is selected, the extension creates `jlceda-inventory-latest.json` and enables backup only after a successful test write. Existing saved paths remain usable and a new folder can be selected at any time; cancelling the picker leaves settings unchanged. Restore strictly validates schema, budgets, references, and ledger closure, stages a recovery point, and reinstates the previous recovery point if the primary restore fails. Version `0.5.5` passed the specified Desktop cases for folder selection, permission rejection, disable/re-enable, consecutive saves, external restore, and recovery-snapshot restore. Version `0.5.16` additionally passed folder/restore compatibility without the global `URL`, Desktop restart persistence, primary-save isolation when either the backup path disappears or external-interaction permission is disabled at runtime, backup after create, favorite, full-edit, merge, delete, and order-import writes, and pre-write rejection of malformed JSON, future schemas, and invalid backup fields. Web now also passed explicit fallback, manual-save, and file-restore checks. Web and Desktop do not automatically share primary inventory and require explicit JSON transfer. Non-destructive P0 host validation is complete; destructive disk and primary-storage failures remain covered by automated injection, and two-device behavior is tracked separately as P1.
@@ -21,7 +21,7 @@ The current release is `0.5.16`. The extension does not require the developer to
 - Query the JLCEDA system library first when adding a C-number part. Use model information immediately on a match, and open the LCSC marketplace for confirmation only when lookup is missing or fails.
 - Keep marketplace products and EDA models independent; products without an EDA model can still be saved and managed as inventory.
 - Use the same one-screen IFrame form for both LCSC-number and custom components, entering identity, quantity, category, location, and notes without a chain of native single-field dialogs.
-- Show the inventory package and EDA model footprint prominently in the list and details, alongside separate marketplace-evidence and EDA-model statuses with exact rematching by the inventory record's current C number.
+- Show the inventory package and EDA model footprint prominently in the list and details alongside separate marketplace-evidence and EDA-model statuses; existing unbound records do not offer model rematching.
 - Add custom components with exact, estimated, or unknown quantities.
 - Keep the inventory overview mounted as the parent window with a host-native collapsed minimize control whose full-width title bar remains available for manual restore. Moving the window, clicking the EDA workspace, switching applications, minimizing, restoring, or maximizing never hides it implicitly. Place hides it explicitly and restores it on failure; only explicit close ends the session.
 - Require a non-negative integer quantity, show a specific warning for negative values, mark zero as depleted automatically, and allow depleted state changes in the same form.
@@ -47,7 +47,7 @@ GitHub can host source code, CI builds, and release files, but it cannot act dir
 
 ## Installation
 
-1. Download `jlceda-inventory_v0.5.16.eext` from a Release or CI artifact.
+1. Download `jlceda-inventory_v0.5.17.eext` from a Release or CI artifact.
 2. Open JLCEDA Professional V3.
 3. Go to "Advanced -> Extension Manager -> Import" and select the `.eext` file.
 4. Enable the extension under Installed; enable "Show in top menu" to keep its entry in the top row.
@@ -96,7 +96,7 @@ tests/                      Pure business unit tests
 docs/                       Project documentation and roadmap
 ```
 
-See the [documentation index](docs/README.md), Chinese [0.5.16 new-feature test methods](docs/手动测试指南.md), [architecture](docs/architecture.md), [reliability roadmap](docs/roadmap.md), and [order import format](docs/order-import-format.md).
+See the [documentation index](docs/README.md), Chinese [0.5.17 new-feature test methods](docs/手动测试指南.md), [architecture](docs/architecture.md), [reliability roadmap](docs/roadmap.md), and [order import format](docs/order-import-format.md).
 
 ## Current Limitations
 
