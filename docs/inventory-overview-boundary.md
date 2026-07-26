@@ -283,11 +283,12 @@ interface InventoryDocument {
 
 - 保留现有 `InventoryOverviewPanel` 端口，继续负责包含分类与搜索能力的库存总览。
 - 保留独立、版本化的 overview IFrame 协议，不扩充单条 `InventoryItemPanel` 协议承担列表职责；本轮为长会话行为升级协议版本。
-- overview 协议是长生命周期会话。主运行时向 IFrame 提供只读快照、分类和本地化标签；IFrame 发送带操作 ID 的 `view-item`、`place-item`、`edit-item`、`delete-item`、`delete-items`、`open-marketplace`、`open-datasheet`、`retry-model`、`copy-common`、`move-items`、`export-replenishment`、分类 CRUD、排序和 `refresh` 请求，但这些请求本身不是关闭总览的终态结果。
+- overview 协议默认是长生命周期会话。主运行时向 IFrame 提供只读快照、分类和本地化标签；IFrame 发送带操作 ID 的 `view-item`、`select-item`、`place-item`、`edit-item`、`delete-item`、`delete-items`、`open-marketplace`、`open-datasheet`、`retry-model`、`copy-common`、`move-items`、`export-replenishment`、分类 CRUD、排序和 `refresh` 请求，但普通总览中的这些请求本身不是关闭会话的终态结果。
+- 管理替代料关系使用显式 `picker` 请求创建临时选料会话：保留总览的搜索、分类、筛选、列设置和分页，只显示 `select-item` 行操作，并隐藏批量选择、分类管理、刷新、导出及其他库存操作。宿主按工作流传入可选条目子集并再次校验 ID 与 revision；后台库存快照同步不得把完整库存写入该会话并扩大候选范围。选择成功后关闭临时会话，用户关闭窗口则视为取消。该模式替代基准料和新增替代料的全量原生单选列表，已确认关系数量较少的后续操作菜单仍可使用原生选择框。
 - `export-replenishment` 调用的宿主 `saveFile()` 在文件保存窗口完成前就可能 resolve，因此成功响应只代表保存请求已交给宿主，不能声称文件已经落盘。成功和取消均静默关闭插件操作窗口，只有宿主明确返回失败时才显示导出错误。
 - `place-item` 只携带库存 ID、expected revision 和视图状态，不向 IFrame 暴露或接收 device/library UUID。控制器必须重新读取最新库存，确认未用完且仍有模型引用；平台适配器再确认当前文档为原理图后调用官方鼠标放置 API。API 成功只代表模型已绑定到鼠标，不代表用户已在画布完成放置。
 - `retry-model` 是按库存当前 C 编号精确查询的带阶段响应子流程：至少返回查询中、待确认、成功、未命中、失败和取消状态，不接收备用搜索词或候选选择。只有返回相同 C 编号的精确结果、用户确认且应用服务保存成功后，最新模型状态才写回总览快照。
-- 控制器处理请求后向同一会话返回成功、取消、失败以及最新快照或受影响数据；IFrame 根据响应关闭子流程或保留错误状态。只有用户显式关闭总览才写入会话终态并清理桥接键。
+- 控制器处理请求后向同一会话返回成功、取消、失败以及最新快照或受影响数据；IFrame 根据响应关闭子流程或保留错误状态。普通总览只有用户显式关闭时才结束会话；临时选料会话在 `select-item` 成功或用户关闭窗口时结束并清理桥接键。
 - 从独立菜单新增元器件时，即使命令与总览由不同控制器实例承载，也必须通过当前桥接 requestId 把最新快照推送到已打开、隐藏或最小化的总览，不得要求用户关闭重开。该非请求式快照是纯数据同步：IFrame 只能替换库存与分类数据，并保留用户当前的搜索、筛选、设计选择、排序、页码、选中项、滚动和焦点；它不得携带定位 ID，也不得解除范围或主动显示新记录。需要改变视图时必须由 F3 等用户显式命令发起。
 - 每个请求携带经过校验的 revision、操作 ID 和必要视图上下文；同一记录或分类存在未完成写操作时禁用重复提交，过期响应不得覆盖较新的界面状态。
 - 控制器在同一挂载会话中处理意图并回写响应；不再通过“关闭总览、处理、重开窗口”的循环实现普通操作。

@@ -259,12 +259,19 @@ function createController(
 			if (!itemId) {
 				return;
 			}
-			const action = selections.shift();
 			const item = input.items.find(candidate => candidate.id === itemId);
 			if (!item) {
 				return;
 			}
 			const reference = { id: item.id, expectedRevision: item.revision };
+			if (input.picker) {
+				await onOperation({
+					operationId: 'operation-select',
+					intent: { type: 'select-item', item: reference, viewState: overviewViewState },
+				});
+				return;
+			}
+			const action = selections.shift();
 			if (action === 'details') {
 				await onOperation({ operationId: 'operation-details', intent: { type: 'view-item', item: reference, viewState: overviewViewState } });
 			}
@@ -375,6 +382,32 @@ describe('nativeInventoryController.manageSubstituteLinks', () => {
 
 		await context.controller.manageSubstituteLinks();
 
+		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledTimes(2);
+		const basePicker = context.inventoryOverviewPanel.open.mock.calls[0]![0];
+		const targetPicker = context.inventoryOverviewPanel.open.mock.calls[1]![0];
+		expect(basePicker).toMatchObject({
+			items: [base, target],
+			picker: {
+				title: 'substituteLinks.chooseBase',
+				actionLabel: 'substituteLinks.selectBase',
+			},
+			replaceActiveSession: true,
+			initialState: {
+				categoryId: 'all',
+				stockFilter: 'all',
+				modelFilter: 'all',
+				sort: 'category',
+			},
+		});
+		expect(targetPicker).toMatchObject({
+			items: [target],
+			picker: {
+				title: 'substituteLinks.chooseTarget',
+				actionLabel: 'substituteLinks.selectTarget',
+			},
+			replaceActiveSession: true,
+		});
+		expect(context.dialog.select).toHaveBeenCalledOnce();
 		expect(context.dialog.confirm).toHaveBeenCalledWith('substituteLinks.confirmCreate', 'substituteLinks.title');
 		expect(context.inventory.createSubstituteLink).toHaveBeenCalledWith({
 			itemA: { id: base.id, expectedRevision: base.revision },
@@ -413,6 +446,18 @@ describe('nativeInventoryController.manageSubstituteLinks', () => {
 
 		await context.controller.manageSubstituteLinks();
 
+		expect(context.inventoryOverviewPanel.open).toHaveBeenCalledOnce();
+		expect(context.inventoryOverviewPanel.open.mock.calls[0]![0]).toMatchObject({
+			picker: {
+				title: 'substituteLinks.chooseBase',
+				actionLabel: 'substituteLinks.selectBase',
+			},
+		});
+		expect(context.dialog.select).toHaveBeenCalledOnce();
+		expect(context.dialog.select.mock.calls[0]![0].map(option => option.value)).toEqual([
+			`link:${link.id}`,
+			'__create__',
+		]);
 		expect(context.dialog.select).toHaveBeenLastCalledWith(
 			expect.arrayContaining([expect.objectContaining({ value: `link:${link.id}` })]),
 			'substituteLinks.title',
@@ -2664,6 +2709,52 @@ describe('nativeInventoryController inventory management', () => {
 		);
 		expect(context.inventoryItemPanel.edit).not.toHaveBeenCalled();
 		expect(context.inventory.moveItemsToCategory).not.toHaveBeenCalled();
+	});
+
+	it('returns an overview operation failure when an asynchronous item update throws', async () => {
+		const item = createInventoryItem();
+		const draft = {
+			...createEditDraft(),
+			datasheetUrl: 'https://example.com/test.pdf',
+		};
+		const context = createController(vi.fn(), [], []);
+		context.inventory.exportDocument.mockResolvedValue({
+			schemaVersion: 9,
+			revision: 1,
+			updatedAt: item.updatedAt,
+			categories: [],
+			items: [item],
+			orderImportBatches: [],
+			transactions: [],
+			stockOutBatches: [],
+			projectSnapshots: [],
+			purchaseRecords: [],
+			substituteLinks: [],
+		});
+		context.inventory.updateItem.mockRejectedValue(new TypeError('Datasheet URL is invalid.'));
+		let operationResult: Awaited<ReturnType<InventoryOverviewOperationHandler>> | undefined;
+		let operationError: unknown;
+		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
+			try {
+				operationResult = await onOperation({
+					operationId: 'update-item-error',
+					intent: {
+						type: 'update-item',
+						item: { id: item.id, expectedRevision: item.revision },
+						draft,
+						viewState: overviewViewState,
+					},
+				});
+			}
+			catch (error) {
+				operationError = error;
+			}
+		});
+
+		await context.controller.openInventory();
+
+		expect(operationError).toBeUndefined();
+		expect(operationResult).toEqual({ status: 'failed', message: 'error.generic' });
 	});
 
 	it('requires an in-overview confirmation token before merging a duplicate edit', async () => {

@@ -321,6 +321,39 @@ describe('iframe inventory overview protocol', () => {
 		expect(await settle(pending)).toBeUndefined();
 	});
 
+	it('round-trips picker metadata and uses its contextual native-window title', async () => {
+		const host = new FakeHost();
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({
+			items: [item],
+			categories: [],
+			picker: {
+				title: 'Choose the base inventory item',
+				actionLabel: 'Use as base item',
+			},
+			replaceActiveSession: true,
+		}, vi.fn());
+		const request = await requestFrom(host);
+
+		expect(request.picker).toEqual({
+			title: 'Choose the base inventory item',
+			actionLabel: 'Use as base item',
+		});
+		await vi.waitFor(() => expect(host.open).toHaveBeenCalledWith(expect.objectContaining({
+			title: 'Choose the base inventory item',
+		})));
+		expect(parseIFrameInventoryOverviewRequest({
+			...request,
+			picker: { ...request.picker!, title: '' },
+		})).toBeUndefined();
+		expect(parseIFrameInventoryOverviewRequest({
+			...request,
+			picker: { ...request.picker!, actionLabel: ' '.repeat(1001) },
+		})).toBeUndefined();
+
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+	});
+
 	it('validates unsolicited data-only snapshot updates and rejects stale sequences', () => {
 		const update = createIFrameInventoryOverviewSnapshotUpdate(
 			'request-1',
@@ -358,6 +391,37 @@ describe('iframe inventory overview protocol', () => {
 			},
 		};
 		expect(parseIFrameInventoryOverviewResult(valid, 'request-1')).toEqual(valid);
+		expect(parseIFrameInventoryOverviewResult({
+			...valid,
+			operation: {
+				operationId: 'operation-select-item',
+				intent: {
+					type: 'select-item',
+					item: { id: 'item-1', expectedRevision: 4 },
+					viewState: initialState,
+				},
+			},
+		}, 'request-1')).toMatchObject({ operation: { intent: { type: 'select-item' } } });
+		expect(parseIFrameInventoryOverviewResult({
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: 'request-1',
+			status: 'completed',
+			operationId: 'operation-select-item',
+			action: 'select-item',
+		}, 'request-1')).toEqual({
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: 'request-1',
+			status: 'completed',
+			operationId: 'operation-select-item',
+			action: 'select-item',
+		});
+		expect(parseIFrameInventoryOverviewResult({
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: 'request-1',
+			status: 'completed',
+			operationId: '',
+			action: 'select-item',
+		}, 'request-1')).toBeUndefined();
 		expect(parseIFrameInventoryOverviewResult({
 			...valid,
 			operation: {
@@ -460,6 +524,27 @@ describe('inventory overview category manager markup', () => {
 		for (const call of hideCalls) {
 			expect(source.slice(Math.max(0, (call.index ?? 0) - 500), call.index)).toContain('type === \'place-item\'');
 		}
+	});
+
+	it('uses the searchable overview as a scoped picker and closes it after a successful selection', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+		const styles = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.css'), 'utf8');
+
+		expect(source).toContain('elements.shell.classList.toggle(\'picker-mode\', request.picker !== undefined)');
+		expect(source).toContain('active.intent.type === \'select-item\' && result.status === \'succeeded\'');
+		expect(source).toContain('writeResult(completedSelection(request.requestId, active.id))');
+		expect(source).not.toContain('eda.sys_IFrame.closeIFrame(INVENTORY_OVERVIEW_IFRAME_ID)');
+		expect(source).toContain('select.classList.add(\'row-select-action\')');
+		expect(styles).toContain('.picker-mode .select-column');
+		expect(styles).toContain('.picker-mode .category-management');
+	});
+
+	it('restores the edit draft and displays an operation failure returned by the host', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+
+		expect(source).toContain('error.textContent = initialError ?? \'\'');
+		expect(source).toContain('onFailed: failureMessage => showOverviewEditor(');
+		expect(source).toMatch(/category\.value \|\| undefined,\s+failureMessage,/u);
 	});
 
 	it('clears the design-selection scope with the other overview filters', () => {
@@ -792,6 +877,31 @@ describe('iframeInventoryOverviewPanel', () => {
 		expect(await settle(pending)).toBeUndefined();
 	});
 
+	it('keeps an active picker scoped when local or cross-instance inventory snapshots change', async () => {
+		const host = new FakeHost();
+		const ownerPanel = new IFrameInventoryOverviewPanel(t, host);
+		const pending = ownerPanel.open({
+			items: [item],
+			categories: [],
+			picker: { title: 'Choose substitute', actionLabel: 'Use as substitute' },
+			replaceActiveSession: true,
+		}, vi.fn());
+		await requestFrom(host);
+		const externalPanel = new IFrameInventoryOverviewPanel(t, host);
+		const unrelatedItem = {
+			...item,
+			id: 'unrelated-item',
+			identity: { ...item.identity, name: 'Unrelated item', lcscPartNumber: 'C999' },
+		};
+
+		expect(await ownerPanel.updateSnapshot({ items: [item, unrelatedItem], categories: [] })).toBe(false);
+		expect(await externalPanel.updateSnapshot({ items: [item, unrelatedItem], categories: [] })).toBe(false);
+		expect(host.values.has(INVENTORY_OVERVIEW_SNAPSHOT_UPDATE_KEY)).toBe(false);
+
+		host.onClose();
+		expect(await settle(pending)).toBeUndefined();
+	});
+
 	it('removes the obsolete auto-hide control signal before opening a session', async () => {
 		const host = new FakeHost();
 		host.values.set('inventory-overview-panel.v2.window-control', {
@@ -965,6 +1075,71 @@ describe('iframeInventoryOverviewPanel', () => {
 		expect(host.values.has(INVENTORY_OVERVIEW_REQUEST_KEY)).toBe(false);
 		expect(host.values.has(INVENTORY_OVERVIEW_RESULT_KEY)).toBe(false);
 		expect(host.values.has(INVENTORY_OVERVIEW_RESPONSE_KEY)).toBe(false);
+	});
+
+	it('closes a picker session when the iframe reports a completed selection', async () => {
+		const host = new FakeHost();
+		const trace = {
+			info: vi.fn(),
+			warn: vi.fn(),
+			error: vi.fn(),
+			waitFor: vi.fn(),
+		} as unknown as DiagnosticTrace;
+		const onOperation = vi.fn().mockResolvedValue({ status: 'succeeded' });
+		const pending = new IFrameInventoryOverviewPanel(t, host).open({
+			items: [item],
+			categories: [],
+			picker: {
+				title: 'Choose an inventory item',
+				actionLabel: 'Select item',
+			},
+			replaceActiveSession: true,
+		}, onOperation, trace);
+		const request = await requestFrom(host);
+		await vi.waitFor(() => expect(host.open).toHaveBeenCalledOnce());
+
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'ready',
+		});
+		host.poll();
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'operation',
+			operation: {
+				operationId: 'operation-select-item',
+				intent: {
+					type: 'select-item',
+					item: { id: item.id, expectedRevision: item.revision },
+					viewState: initialState,
+				},
+			},
+		});
+		host.poll();
+		await vi.waitFor(() => expect(onOperation).toHaveBeenCalledOnce());
+		await vi.waitFor(() => expect(parseIFrameInventoryOverviewOperationResponse(
+			host.values.get(INVENTORY_OVERVIEW_RESPONSE_KEY),
+			request.requestId,
+			'operation-select-item',
+		)).toMatchObject({ result: { status: 'succeeded' } }));
+
+		host.values.set(INVENTORY_OVERVIEW_RESULT_KEY, {
+			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+			requestId: request.requestId,
+			status: 'completed',
+			operationId: 'operation-select-item',
+			action: 'select-item',
+		});
+		host.poll();
+
+		expect(await settle(pending)).toBeUndefined();
+		expect(trace.info).toHaveBeenCalledWith('inventory-overview-panel.iframe.response', { status: 'completed' });
+		expect(host.stopPolling).toHaveBeenCalledOnce();
+		expect(host.close).toHaveBeenCalledOnce();
+		expect(host.values.has(INVENTORY_OVERVIEW_REQUEST_KEY)).toBe(false);
+		expect(host.values.has(INVENTORY_OVERVIEW_RESULT_KEY)).toBe(false);
 	});
 
 	it('cleans fixed bridge keys when the host rejects opening', async () => {

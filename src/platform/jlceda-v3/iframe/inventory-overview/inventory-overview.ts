@@ -180,8 +180,9 @@ async function initialize(elements: PanelElements): Promise<void> {
 		return;
 	}
 
-	document.documentElement.lang = inferLanguage(request.labels.title);
-	document.title = request.labels.title;
+	const panelTitle = request.picker?.title ?? request.labels.title;
+	document.documentElement.lang = inferLanguage(panelTitle);
+	document.title = panelTitle;
 	elements.bootMessage.textContent = request.labels.loading;
 	const writeResult = async (result: IFrameInventoryOverviewResult): Promise<boolean> => {
 		try {
@@ -220,6 +221,7 @@ function renderPanel(
 	writeResult: (result: IFrameInventoryOverviewResult) => Promise<boolean>,
 ): void {
 	const labels = request.labels;
+	const panelTitle = request.picker?.title ?? labels.title;
 	let state = normalizeOverviewViewState(request.initialState, request.categories, request.items);
 	let pendingFocusItemId = state.focusItemId;
 	let draftQuery = state.query;
@@ -236,7 +238,8 @@ function renderPanel(
 	const ignoredOperationIds = new Set<string>();
 	let render = (_preserveTableScroll?: boolean): void => undefined;
 
-	localizeStaticElements(elements, labels);
+	elements.shell.classList.toggle('picker-mode', request.picker !== undefined);
+	localizeStaticElements(elements, labels, panelTitle);
 	populateSelects(elements, labels, state);
 	initializeColumnSettings(elements, labels, () => columnPreferences, (preferences) => {
 		columnPreferences = preferences;
@@ -274,7 +277,7 @@ function renderPanel(
 			trigger: document.activeElement instanceof HTMLElement ? document.activeElement : undefined,
 			...options,
 		};
-		showOperationDialog(actionTitle(action, labels), labels.loading);
+		showOperationDialog(actionTitle(action, labels, request.picker?.actionLabel), labels.loading);
 		elements.operationCancel.hidden = action.type !== 'retry-model';
 		elements.operationRetry.hidden = true;
 		elements.operationConfirm.hidden = true;
@@ -286,7 +289,7 @@ function renderPanel(
 		}).then(async (written) => {
 			if (!written && pendingOperation?.id === operationId) {
 				pendingOperation = undefined;
-				showOperationDialog(labels.title, labels.connectionError);
+				showOperationDialog(panelTitle, labels.connectionError);
 				elements.operationCancel.hidden = false;
 				return;
 			}
@@ -304,7 +307,7 @@ function renderPanel(
 	};
 	const confirmIntent = (action: InventoryOverviewAction, message: string): void => {
 		const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
-		showOperationDialog(actionTitle(action, labels), message);
+		showOperationDialog(actionTitle(action, labels, request.picker?.actionLabel), message);
 		elements.operationCancel.hidden = false;
 		elements.operationRetry.hidden = true;
 		elements.operationConfirm.hidden = false;
@@ -469,7 +472,12 @@ function renderPanel(
 		});
 		renderRows(elements, request, page.items, selectedIds, labels, itemDrag, openCategoryDrawer, closeCategoryDrawer, requestIntent, render);
 		applyInventoryOverviewColumnPreferences(elements, columnPreferences);
-		renderBulkToolbar(elements, request.categories, filtered, selectedIds, labels, requestIntent, render);
+		if (request.picker) {
+			elements.bulkToolbar.hidden = true;
+		}
+		else {
+			renderBulkToolbar(elements, request.categories, filtered, selectedIds, labels, requestIntent, render);
+		}
 		const designSelection = state.designSelection;
 		elements.resultSummary.textContent = designSelection
 			? formatLabel(
@@ -721,7 +729,7 @@ function renderPanel(
 				active.onFailed(result.message);
 				return;
 			}
-			showOperationDialog(actionTitle(active.intent, labels), result.message);
+			showOperationDialog(actionTitle(active.intent, labels, request.picker?.actionLabel), result.message);
 			elements.operationCancel.hidden = false;
 			elements.operationConfirm.hidden = true;
 			elements.operationRetry.hidden = active.intent.type !== 'retry-model';
@@ -739,6 +747,15 @@ function renderPanel(
 			if (typeof eda.sys_IFrame?.hideIFrame === 'function') {
 				void eda.sys_IFrame.hideIFrame(INVENTORY_OVERVIEW_IFRAME_ID).catch(() => undefined);
 			}
+			return;
+		}
+		if (active.intent.type === 'select-item' && result.status === 'succeeded') {
+			void writeResult(completedSelection(request.requestId, active.id)).then((written) => {
+				if (!written) {
+					showOperationDialog(panelTitle, labels.connectionError);
+					elements.operationCancel.hidden = false;
+				}
+			});
 			return;
 		}
 		closeOperationDialog(false);
@@ -1325,27 +1342,31 @@ function renderRows(
 				window.removeEventListener('blur', handleWindowBlur);
 			};
 		};
-		dragHandle.addEventListener('pointerdown', (event) => {
-			event.stopPropagation();
-			beginDrag(event, dragHandle);
-		});
-		row.addEventListener('pointerdown', (event) => {
-			const target = event.target;
-			if (!(target instanceof Element)
-				|| target.closest('button, input, select, textarea, a, .select-column, .row-actions')) {
-				return;
-			}
-			beginDrag(event, row);
-		});
+		if (!request.picker) {
+			dragHandle.addEventListener('pointerdown', (event) => {
+				event.stopPropagation();
+				beginDrag(event, dragHandle);
+			});
+			row.addEventListener('pointerdown', (event) => {
+				const target = event.target;
+				if (!(target instanceof Element)
+					|| target.closest('button, input, select, textarea, a, .select-column, .row-actions')) {
+					return;
+				}
+				beginDrag(event, row);
+			});
+		}
 		const nameButton = document.createElement('button');
 		nameButton.type = 'button';
 		nameButton.className = 'item-name-button';
 		nameButton.textContent = item.name;
 		nameButton.addEventListener('click', () => finishIntent({
-			type: 'view-item',
+			type: request.picker ? 'select-item' : 'view-item',
 			item: { id: item.id, expectedRevision: item.revision },
 		}));
-		nameCell.append(dragHandle);
+		if (!request.picker) {
+			nameCell.append(dragHandle);
+		}
 		if (item.favorite) {
 			const favorite = document.createElement('span');
 			favorite.className = 'favorite-indicator';
@@ -1358,7 +1379,7 @@ function renderRows(
 		row.append(
 			selectCell,
 			nameCell,
-			actionCell(item, labels, finishIntent),
+			actionCell(item, labels, finishIntent, request.picker?.actionLabel),
 			textCell(item.lcscPartNumber || item.manufacturerPartNumber || item.supplierId, labels.emptyValue, 'number'),
 			statusCell(quantityLabel(item, labels), `stock-${item.state}`, 'quantity'),
 			textCell(inventoryOverviewPackageLabel(item), labels.emptyValue, 'package'),
@@ -1573,11 +1594,22 @@ function actionCell(
 	item: InventoryOverviewItemSnapshot,
 	labels: InventoryOverviewLabels,
 	finishIntent: (intent: InventoryOverviewAction) => void,
+	pickerActionLabel?: string,
 ): HTMLTableCellElement {
 	const cell = document.createElement('td');
 	cell.className = 'actions-column';
 	const actions = document.createElement('div');
 	actions.className = 'row-actions';
+	if (pickerActionLabel) {
+		const select = rowAction(pickerActionLabel, () => finishIntent({
+			type: 'select-item',
+			item: { id: item.id, expectedRevision: item.revision },
+		}));
+		select.classList.add('row-select-action');
+		actions.append(select);
+		cell.append(actions);
+		return cell;
+	}
 	const placementBlocker = inventoryOverviewPlacementBlocker(item);
 	actions.append(rowPlacementAction(
 		labels.placeItem,
@@ -1747,7 +1779,7 @@ function browserColumnPreferenceStorage(): InventoryOverviewColumnPreferenceStor
 	}
 }
 
-function localizeStaticElements(elements: PanelElements, labels: InventoryOverviewLabels): void {
+function localizeStaticElements(elements: PanelElements, labels: InventoryOverviewLabels, panelTitle: string): void {
 	setText('search-label', labels.searchLabel);
 	elements.searchInput.placeholder = labels.searchPlaceholder;
 	setText('search-scope-label', labels.searchScope);
@@ -1773,7 +1805,7 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	elements.clearFilters.textContent = labels.clearFilters;
 	elements.exportReplenishment.textContent = labels.exportReplenishment;
 	elements.refresh.textContent = labels.refresh;
-	setText('category-heading-label', labels.title);
+	setText('category-heading-label', panelTitle);
 	elements.toggleCategoryManagement.textContent = labels.manageCategories;
 	setText('category-manager-title', labels.manageCategories);
 	elements.importEdaCategories.textContent = labels.importEdaCategories;
@@ -1911,8 +1943,13 @@ function rowIconAction(label: string, icon: string, action: () => void): HTMLBut
 	return button;
 }
 
-function actionTitle(action: InventoryOverviewAction, labels: InventoryOverviewLabels): string {
+function actionTitle(
+	action: InventoryOverviewAction,
+	labels: InventoryOverviewLabels,
+	pickerActionLabel?: string,
+): string {
 	switch (action.type) {
+		case 'select-item': return pickerActionLabel ?? labels.confirm;
 		case 'view-item': return labels.viewItem;
 		case 'place-item': return labels.placeItem;
 		case 'edit-item': return labels.editItem;
@@ -2094,6 +2131,7 @@ function showOverviewEditor(
 	) => void,
 	initialDraft?: Extract<InventoryOverviewAction, { type: 'update-item' }>['draft'],
 	initialCategoryId: string | undefined = item.categoryId,
+	initialError?: string,
 ): void {
 	const backdrop = element('operation-backdrop', HTMLElement);
 	const message = element('operation-message', HTMLElement);
@@ -2212,7 +2250,8 @@ function showOverviewEditor(
 	form.append(quantityRow, minimumQuantityRow, precisionRow, categoryRow, depletedRow, favoriteRow);
 	const error = document.createElement('p');
 	error.className = 'inline-error';
-	error.hidden = true;
+	error.textContent = initialError ?? '';
+	error.hidden = !initialError;
 	form.append(error);
 	message.replaceChildren(form);
 	backdrop.hidden = false;
@@ -2294,7 +2333,15 @@ function showOverviewEditor(
 			draft: nextDraft,
 			categoryId: category.value || undefined,
 		}, {
-			onFailed: () => showOverviewEditor(item, categories, labels, requestIntent, nextDraft, category.value || undefined),
+			onFailed: failureMessage => showOverviewEditor(
+				item,
+				categories,
+				labels,
+				requestIntent,
+				nextDraft,
+				category.value || undefined,
+				failureMessage,
+			),
 		});
 	});
 	setTimeout(() => inputs.get('name')?.focus(), 0);
@@ -2522,6 +2569,16 @@ function progress(requestId: string, stage: InventoryOverviewPanelStage): IFrame
 
 function baseResult(requestId: string, status: 'cancelled' | 'ready'): IFrameInventoryOverviewResult {
 	return { protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION, requestId, status };
+}
+
+function completedSelection(requestId: string, operationId: string): IFrameInventoryOverviewResult {
+	return {
+		protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
+		requestId,
+		status: 'completed',
+		operationId,
+		action: 'select-item',
+	};
 }
 
 async function requireWrite(

@@ -7,6 +7,7 @@ import type {
 	InventoryOverviewIntent,
 	InventoryOverviewOperation,
 	InventoryOverviewOperationResult,
+	InventoryOverviewPicker,
 	InventoryOverviewRevisionRef,
 	InventoryOverviewSnapshot,
 	InventoryOverviewViewState,
@@ -249,10 +250,18 @@ export interface IFrameInventoryOverviewRequest {
 	categories: InventoryOverviewCategorySnapshot[];
 	items: InventoryOverviewItemSnapshot[];
 	initialState?: InventoryOverviewViewState;
+	picker?: InventoryOverviewPicker;
 }
 
 export type IFrameInventoryOverviewResult
 	= | { protocolVersion: 2; requestId: string; status: 'ready' | 'cancelled' }
+		| {
+			protocolVersion: 2;
+			requestId: string;
+			status: 'completed';
+			operationId: string;
+			action: 'select-item';
+		}
 		| { protocolVersion: 2; requestId: string; status: 'progress'; stage: InventoryOverviewPanelStage }
 		| { protocolVersion: 2; requestId: string; status: 'failed'; stage: InventoryOverviewPanelStage; errorName: string; error: string }
 		| { protocolVersion: 2; requestId: string; status: 'operation'; operation: InventoryOverviewOperation };
@@ -303,6 +312,7 @@ export function createInventoryOverviewRequest(
 		categories: input.categories.map(createCategorySnapshot),
 		initialState: input.initialState ? cloneViewState(input.initialState) : undefined,
 		items: input.items.map(createItemSnapshot),
+		picker: input.picker ? { ...input.picker } : undefined,
 	};
 }
 
@@ -341,7 +351,8 @@ export function parseIFrameInventoryOverviewRequest(value: unknown): IFrameInven
 		|| !isLabels(value.labels)
 		|| !isCategories(value.categories)
 		|| !isItems(value.items)
-		|| (value.initialState !== undefined && !isViewState(value.initialState))) {
+		|| (value.initialState !== undefined && !isViewState(value.initialState))
+		|| (value.picker !== undefined && !isPicker(value.picker))) {
 		return undefined;
 	}
 	return {
@@ -351,6 +362,7 @@ export function parseIFrameInventoryOverviewRequest(value: unknown): IFrameInven
 		categories: value.categories.map(category => ({ ...category })),
 		items: value.items.map(cloneItemSnapshot),
 		initialState: value.initialState ? cloneViewState(value.initialState) : undefined,
+		picker: value.picker ? { ...value.picker } : undefined,
 	};
 }
 
@@ -366,6 +378,11 @@ export function parseIFrameInventoryOverviewResult(
 	const base = { protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION, requestId: expectedRequestId } as const;
 	if (value.status === 'ready' || value.status === 'cancelled') {
 		return { ...base, status: value.status };
+	}
+	if (value.status === 'completed'
+		&& isNonEmptyText(value.operationId, 200)
+		&& value.action === 'select-item') {
+		return { ...base, status: 'completed', operationId: value.operationId, action: value.action };
 	}
 	if (value.status === 'progress' && isStage(value.stage)) {
 		return { ...base, status: 'progress', stage: value.stage };
@@ -511,6 +528,7 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 		return { ...intent, categories: intent.categories.map(category => ({ ...category })), viewState: cloneViewState(intent.viewState) };
 	}
 	if (intent.type === 'view-item'
+		|| intent.type === 'select-item'
 		|| intent.type === 'place-item'
 		|| intent.type === 'edit-item'
 		|| intent.type === 'open-marketplace'
@@ -603,6 +621,7 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 		return false;
 	}
 	if ((value.type === 'view-item'
+		|| value.type === 'select-item'
 		|| value.type === 'place-item'
 		|| value.type === 'edit-item'
 		|| value.type === 'open-marketplace'
@@ -858,6 +877,12 @@ function isStructuredLocation(value: unknown): value is StructuredInventoryLocat
 
 function isLabels(value: unknown): value is InventoryOverviewLabels {
 	return isRecord(value) && LABEL_KEYS.every(key => isText(value[key], 1000));
+}
+
+function isPicker(value: unknown): value is InventoryOverviewPicker {
+	return isRecord(value)
+		&& isNonEmptyTrimmedText(value.title, 1000)
+		&& isNonEmptyTrimmedText(value.actionLabel, 1000);
 }
 
 function isRevisionRefs(value: unknown, maximumLength: number): value is InventoryOverviewRevisionRef[] {

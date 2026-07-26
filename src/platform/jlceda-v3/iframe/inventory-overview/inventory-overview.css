@@ -675,6 +675,22 @@ select:focus,
 	cursor: grab;
 }
 
+.picker-mode .select-column,
+.picker-mode .bulk-toolbar,
+.picker-mode .category-management,
+.picker-mode #export-replenishment,
+.picker-mode #refresh {
+	display: none !important;
+}
+
+.picker-mode .inventory-table tbody tr > td:not(.actions-column) {
+	cursor: default;
+}
+
+.picker-mode #column-actions {
+	width: 150px;
+}
+
 .select-column {
 	width: 42px;
 	text-align: center !important;
@@ -839,6 +855,21 @@ select:focus,
 	background: var(--primary);
 	color: #ffffff;
 	font-weight: 650;
+}
+
+.row-select-action {
+	min-height: 26px;
+	padding: 1px 9px;
+	border: 1px solid var(--primary);
+	border-radius: 4px;
+	background: var(--primary);
+	color: #ffffff;
+	font-weight: 650;
+}
+
+.row-select-action:hover:not(:disabled) {
+	background: var(--primary-hover);
+	text-decoration: none;
 }
 
 .row-place-action:hover:not(:disabled) {

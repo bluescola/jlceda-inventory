@@ -18,7 +18,13 @@ export interface InventoryOverviewInput {
 	items: readonly InventoryOverviewItem[];
 	categories: readonly InventoryOverviewCategory[];
 	initialState?: InventoryOverviewViewState;
+	picker?: InventoryOverviewPicker;
 	replaceActiveSession?: boolean;
+}
+
+export interface InventoryOverviewPicker {
+	title: string;
+	actionLabel: string;
 }
 
 export interface InventoryOverviewRevisionRef {
@@ -60,6 +66,7 @@ export interface InventoryOverviewViewState {
 
 export type InventoryOverviewAction
 	= | { type: 'view-item'; item: InventoryOverviewRevisionRef }
+		| { type: 'select-item'; item: InventoryOverviewRevisionRef }
 		| { type: 'place-item'; item: InventoryOverviewRevisionRef }
 		| { type: 'edit-item'; item: InventoryOverviewRevisionRef }
 		| { type: 'update-item'; item: InventoryOverviewRevisionRef; draft: InventoryItemEditDraft; categoryId?: string }

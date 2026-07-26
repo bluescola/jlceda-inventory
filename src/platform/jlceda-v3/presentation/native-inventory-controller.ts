@@ -592,16 +592,16 @@ export class NativeInventoryController {
 				this.dialog.info(this.t('substituteLinks.notEnoughItems'), this.t('substituteLinks.title'));
 				return;
 			}
-			const baseItemId = await this.tracedSelect(
+			const baseItem = await this.pickSubstituteInventoryItem(
+				document,
+				document.items,
+				{
+					title: this.t('substituteLinks.chooseBase'),
+					actionLabel: this.t('substituteLinks.selectBase'),
+				},
 				trace,
-				'substitute-links.base-item',
-				document.items
-					.toSorted((left, right) => left.identity.name.localeCompare(right.identity.name) || left.id.localeCompare(right.id))
-					.map(item => ({ value: item.id, label: this.formatItemLine(item) })),
-				this.t('substituteLinks.title'),
-				this.t('substituteLinks.chooseBase'),
 			);
-			if (!baseItemId) {
+			if (!baseItem) {
 				return;
 			}
 			const requiredQuantityText = await this.tracedInput(trace, 'substitute-links.required-quantity', {
@@ -620,8 +620,37 @@ export class NativeInventoryController {
 				this.dialog.info(this.t('substituteLinks.invalidRequiredQuantity'), this.t('substituteLinks.title'));
 				return;
 			}
-			await this.runSubstituteLinkManager(baseItemId, requiredQuantity, trace);
+			await this.runSubstituteLinkManager(baseItem.id, requiredQuantity, trace);
 		}, trace);
+	}
+
+	private async pickSubstituteInventoryItem(
+		document: InventoryOverviewDocument,
+		items: readonly InventoryItem[],
+		picker: NonNullable<InventoryOverviewInput['picker']>,
+		trace: DiagnosticTrace,
+	): Promise<InventoryItem | undefined> {
+		const selectableItems = new Map(items.map(item => [item.id, item]));
+		let selectedItem: InventoryItem | undefined;
+		await this.inventoryOverviewPanel.open({
+			items,
+			categories: document.categories,
+			initialState: createInventoryPickerOverviewState(),
+			picker,
+			replaceActiveSession: true,
+		}, async (operation) => {
+			if (operation.intent.type !== 'select-item') {
+				return { status: 'failed', message: this.t('substituteLinks.concurrentConflict') };
+			}
+			const item = selectableItems.get(operation.intent.item.id);
+			if (!item || item.revision !== operation.intent.item.expectedRevision) {
+				return { status: 'failed', message: this.t('substituteLinks.concurrentConflict') };
+			}
+			selectedItem = item;
+			trace.info('substitute-links.item-selected', { itemId: item.id });
+			return { status: 'succeeded' };
+		}, trace);
+		return selectedItem;
 	}
 
 	private async runSubstituteLinkManager(
@@ -645,7 +674,6 @@ export class NativeInventoryController {
 			trace,
 			'substitute-links.action',
 			[
-				{ value: '__create__', label: this.t('substituteLinks.createAction') },
 				...candidates.map(candidate => ({
 					value: `link:${candidate.link.id}`,
 					label: this.t(
@@ -654,6 +682,7 @@ export class NativeInventoryController {
 						this.t(`substituteLinks.status.${candidate.status}`),
 					),
 				})),
+				{ value: '__create__', label: this.t('substituteLinks.createAction') },
 			],
 			this.t('substituteLinks.title'),
 			this.t('substituteLinks.candidatePrompt', baseItem.identity.name, requiredQuantity),
@@ -713,14 +742,15 @@ export class NativeInventoryController {
 			this.dialog.info(this.t('substituteLinks.noAvailableTarget'), this.t('substituteLinks.title'));
 			return;
 		}
-		const targetId = await this.tracedSelect(
+		const target = await this.pickSubstituteInventoryItem(
+			document,
+			availableTargets,
+			{
+				title: this.t('substituteLinks.chooseTarget', baseItem.identity.name),
+				actionLabel: this.t('substituteLinks.selectTarget'),
+			},
 			trace,
-			'substitute-links.target-item',
-			availableTargets.map(item => ({ value: item.id, label: this.formatItemLine(item) })),
-			this.t('substituteLinks.title'),
-			this.t('substituteLinks.chooseTarget', baseItem.identity.name),
 		);
-		const target = availableTargets.find(item => item.id === targetId);
 		if (!target) {
 			return;
 		}
@@ -1876,18 +1906,20 @@ export class NativeInventoryController {
 			}
 			const locationOptions = collectLocationOptions(items, item?.location);
 			switch (intent.type) {
+				case 'select-item':
+					return { status: 'failed', message: this.t('inventory.concurrentConflict') };
 				case 'view-item':
 					await this.handleInventoryAction(item, 'details', locationOptions);
 					break;
 				case 'place-item':
-					return this.placeInventoryItem(item!, trace);
+					return await this.placeInventoryItem(item!, trace);
 				case 'edit-item':
 					await this.handleInventoryAction(item, 'edit', locationOptions);
 					break;
 				case 'update-item':
-					return this.updateOverviewItem(item!, intent.draft, intent.categoryId, pendingDuplicateMatches);
+					return await this.updateOverviewItem(item!, intent.draft, intent.categoryId, pendingDuplicateMatches);
 				case 'merge-items':
-					return this.mergeOverviewItems(intent, pendingDuplicateMatches);
+					return await this.mergeOverviewItems(intent, pendingDuplicateMatches);
 				case 'open-marketplace':
 					await this.handleInventoryAction(item, 'marketplace', locationOptions);
 					break;
@@ -1897,7 +1929,7 @@ export class NativeInventoryController {
 					}
 					break;
 				case 'retry-model':
-					return this.prepareOverviewModelMatch(item!, pendingModelMatches);
+					return await this.prepareOverviewModelMatch(item!, pendingModelMatches);
 				case 'attach-model': {
 					const pending = pendingModelMatches.get(intent.matchToken);
 					if (!pending || pending.itemId !== intent.item.id || pending.expectedRevision !== intent.item.expectedRevision) {
@@ -1922,7 +1954,7 @@ export class NativeInventoryController {
 					return { status: 'succeeded', message: this.t('edaModel.attached') };
 				}
 				case 'copy-common':
-					return this.copyToCommonLibrary(item!);
+					return await this.copyToCommonLibrary(item!);
 				case 'delete-item': {
 					const latest = await this.inventory.get(intent.item.id);
 					assertOverviewItemRevision(latest, intent.item.expectedRevision);
@@ -1951,7 +1983,7 @@ export class NativeInventoryController {
 					await this.inventory.reorderCategories(intent.parentId, intent.categories);
 					break;
 				case 'import-eda-categories':
-					return this.importEdaCategoriesCore();
+					return await this.importEdaCategoriesCore();
 				case 'export-replenishment':
 					try {
 						await this.files.saveCsv(
@@ -1982,6 +2014,10 @@ export class NativeInventoryController {
 			if (error instanceof InventoryItemSubstituteReferenceError) {
 				return { status: 'failed', message: this.t('inventory.substituteReference') };
 			}
+			trace?.error('inventory-overview.operation.failed', {
+				errorName: errorName(error),
+				type: intent.type,
+			});
 			return { status: 'failed', message: this.t('error.generic', errorMessage(error)) };
 		}
 	}
@@ -3000,6 +3036,21 @@ function createPlacementOverviewState(): InventoryOverviewViewState {
 		categoryId: 'all',
 		stockFilter: 'in-stock',
 		modelFilter: 'available',
+		replenishmentFilter: 'all',
+		favoriteFilter: 'all',
+		sort: 'category',
+		page: 1,
+		pageSize: 50,
+	};
+}
+
+function createInventoryPickerOverviewState(): InventoryOverviewViewState {
+	return {
+		query: '',
+		searchScope: 'all',
+		categoryId: 'all',
+		stockFilter: 'all',
+		modelFilter: 'all',
 		replenishmentFilter: 'all',
 		favoriteFilter: 'all',
 		sort: 'category',

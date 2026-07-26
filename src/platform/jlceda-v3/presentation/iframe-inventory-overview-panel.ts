@@ -63,12 +63,13 @@ export class InventoryOverviewPanelUnavailableError extends Error {
 }
 
 type PanelOutcome
-	= | { status: 'cancelled' }
+	= | { status: 'completed' | 'cancelled' }
 		| { status: 'failed'; error: unknown; ready: boolean };
 
 interface InventoryOverviewSession {
 	cancelled: boolean;
 	opened: boolean;
+	snapshotUpdatesEnabled: boolean;
 	updateSnapshot?: (
 		snapshot: InventoryOverviewSnapshot,
 		trace?: DiagnosticTrace,
@@ -91,6 +92,10 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 	): Promise<boolean> {
 		const session = this.activeSession;
 		if (session && !session.cancelled && session.updateSnapshot) {
+			if (!session.snapshotUpdatesEnabled) {
+				trace?.info('inventory-overview-panel.snapshot-update.skipped', { reason: 'picker-session' });
+				return Promise.resolve(false);
+			}
 			return session.updateSnapshot(snapshot, trace);
 		}
 		let request: IFrameInventoryOverviewRequest | undefined;
@@ -101,8 +106,10 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			trace?.warn('inventory-overview-panel.snapshot-update.probe-failed', { errorName: errorName(error) });
 			return Promise.resolve(false);
 		}
-		if (!request) {
-			trace?.info('inventory-overview-panel.snapshot-update.skipped', { reason: 'no-host-session' });
+		if (!request || request.picker) {
+			trace?.info('inventory-overview-panel.snapshot-update.skipped', {
+				reason: request?.picker ? 'picker-session' : 'no-host-session',
+			});
 			return Promise.resolve(false);
 		}
 		trace?.info('inventory-overview-panel.snapshot-update.cross-instance', { status: 'found' });
@@ -129,7 +136,11 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			});
 		}
 		const previousSession = this.activeSession;
-		const session: InventoryOverviewSession = { cancelled: false, opened: false };
+		const session: InventoryOverviewSession = {
+			cancelled: false,
+			opened: false,
+			snapshotUpdatesEnabled: input.picker === undefined,
+		};
 		this.activeSession = session;
 		if (previousSession) {
 			trace?.info('inventory-overview-panel.iframe.replace.request');
@@ -299,6 +310,12 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 					}
 					return;
 				}
+				if (result.status === 'completed') {
+					if (observedOperations.has(result.operationId)) {
+						resolveOutcome({ status: 'completed' });
+					}
+					return;
+				}
 				resolveOutcome({ status: 'cancelled' });
 			}
 			catch (error) {
@@ -382,7 +399,7 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 				width: PANEL_WIDTH,
 			});
 			opened = await this.host.open({
-				title: request.labels.title,
+				title: request.picker?.title ?? request.labels.title,
 				onClose: retireSession,
 			});
 			if (!opened) {
