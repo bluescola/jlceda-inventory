@@ -348,13 +348,13 @@ function renderSnapshots(
 		remove.classList.add('danger-text');
 		return tableRow(
 			snapshot.label,
+			actionsCell(setQuantity, remove),
+			numericCell(snapshot.boardQuantity),
+			numericCell(snapshot.demandCount),
+			documentKindLabel(snapshot.documentKind, labels),
+			snapshot.capturedAtLabel,
 			snapshot.projectUuid ?? labels.emptyValue,
 			snapshot.documentUuid,
-			documentKindLabel(snapshot.documentKind, labels),
-			numericCell(snapshot.boardQuantity),
-			snapshot.capturedAtLabel,
-			numericCell(snapshot.demandCount),
-			actionsCell(setQuantity, remove),
 		);
 	}));
 	updateEmptyAndPager(elements.empty.snapshots, elements.pagers.snapshots, rows.length, pageRows, labels.emptySnapshots, labels);
@@ -369,12 +369,12 @@ function renderProcurement(
 	const pageRows = paginate(rows, state.procurementPage, state.pageSize);
 	elements.summary.procurement.textContent = `${labels.tabProcurement}: ${rows.length}`;
 	elements.procurementRows.replaceChildren(...pageRows.items.map(row => tableRow(
-		row.lcscPartNumber ?? labels.emptyValue,
 		row.name ?? row.manufacturerPartNumber ?? row.package ?? labels.emptyValue,
-		numericCell(row.requiredQuantity),
-		numericCell(availableLabel(row, labels)),
+		row.lcscPartNumber ?? labels.emptyValue,
 		numericCell(row.suggestedQuantity ?? statusLabel(row.status, labels)),
 		statusCell(row.status, labels),
+		numericCell(row.requiredQuantity),
+		numericCell(availableLabel(row, labels)),
 		row.sources.map(source => `${source.label} (${source.boardQuantity})`).join(', ') || labels.emptyValue,
 	)));
 	updateEmptyAndPager(elements.empty.procurement, elements.pagers.procurement, rows.length, pageRows, labels.emptyProcurement, labels);
@@ -410,16 +410,16 @@ function renderPurchases(
 			{ destructive: true },
 		));
 		return tableRow(
-			record.lcscPartNumber ?? labels.emptyValue,
 			purchaseNameCell(record),
+			actionsCell(remove),
+			record.lcscPartNumber ?? labels.emptyValue,
 			numericCell(record.quantity),
-			numericCell(`${record.unitPriceMinor} ${record.currency}`),
 			numericCell(`${record.totalMinor} ${record.currency}`),
+			numericCell(`${record.unitPriceMinor} ${record.currency}`),
+			record.purchasedAtLabel,
 			record.platform ?? labels.emptyValue,
 			record.orderNumber ?? labels.emptyValue,
-			record.purchasedAtLabel,
 			record.projectSnapshotIds.map(id => snapshotLabels.get(id) ?? id).join(', ') || labels.emptyValue,
-			actionsCell(remove),
 		);
 	}));
 	elements.costSummary.replaceChildren(...data.costSummaries.map((summary) => {

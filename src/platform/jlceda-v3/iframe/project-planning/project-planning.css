@@ -69,23 +69,23 @@ tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--surface-muted); }
 .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .snapshot-table th:nth-child(1) { width: 150px; }
-.snapshot-table th:nth-child(2), .snapshot-table th:nth-child(3) { width: 190px; }
-.snapshot-table th:nth-child(4) { width: 80px; }
-.snapshot-table th:nth-child(5), .snapshot-table th:nth-child(7) { width: 75px; }
+.snapshot-table th:nth-child(2) { width: 150px; }
+.snapshot-table th:nth-child(3), .snapshot-table th:nth-child(4) { width: 75px; }
+.snapshot-table th:nth-child(5) { width: 80px; }
 .snapshot-table th:nth-child(6) { width: 155px; }
-.snapshot-table th:nth-child(8) { width: 150px; }
-.procurement-table th:nth-child(1) { width: 105px; }
-.procurement-table th:nth-child(2) { width: 180px; }
-.procurement-table th:nth-child(3), .procurement-table th:nth-child(4), .procurement-table th:nth-child(5) { width: 90px; }
-.procurement-table th:nth-child(6) { width: 125px; }
+.snapshot-table th:nth-child(7), .snapshot-table th:nth-child(8) { width: 190px; }
+.procurement-table th:nth-child(1) { width: 180px; }
+.procurement-table th:nth-child(2) { width: 105px; }
+.procurement-table th:nth-child(3), .procurement-table th:nth-child(5), .procurement-table th:nth-child(6) { width: 90px; }
+.procurement-table th:nth-child(4) { width: 125px; }
 .procurement-table th:nth-child(7) { width: 290px; }
-.purchase-table th:nth-child(1) { width: 100px; }
-.purchase-table th:nth-child(2) { width: 160px; }
-.purchase-table th:nth-child(3), .purchase-table th:nth-child(4), .purchase-table th:nth-child(5) { width: 90px; }
-.purchase-table th:nth-child(6), .purchase-table th:nth-child(7) { width: 120px; }
-.purchase-table th:nth-child(8) { width: 110px; }
-.purchase-table th:nth-child(9) { width: 230px; }
-.purchase-table th:nth-child(10) { width: 80px; }
+.purchase-table th:nth-child(1) { width: 160px; }
+.purchase-table th:nth-child(2) { width: 170px; }
+.purchase-table th:nth-child(3) { width: 100px; }
+.purchase-table th:nth-child(4), .purchase-table th:nth-child(5), .purchase-table th:nth-child(6) { width: 90px; }
+.purchase-table th:nth-child(7) { width: 110px; }
+.purchase-table th:nth-child(8), .purchase-table th:nth-child(9) { width: 120px; }
+.purchase-table th:nth-child(10) { width: 230px; }
 .empty-state { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; color: var(--muted); text-align: center; }
 .status { display: inline-block; padding: 2px 6px; border-left: 3px solid var(--warning); background: var(--surface-muted); font-weight: 600; }
 .status.insufficient, .status.inventory-missing { color: var(--danger); }

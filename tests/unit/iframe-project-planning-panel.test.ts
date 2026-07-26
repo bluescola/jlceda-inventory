@@ -176,6 +176,34 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 	return { promise, resolve };
 }
 
+function tableHeaderIds(html: string, tableClass: string): string[] {
+	const tableStart = html.indexOf(`<table class="${tableClass}">`);
+	const headerStart = html.indexOf('<thead>', tableStart);
+	const headerEnd = html.indexOf('</thead>', headerStart);
+	if (tableStart < 0 || headerStart < 0 || headerEnd < 0) {
+		throw new Error(`Table header not found: ${tableClass}`);
+	}
+	return [...html.slice(headerStart, headerEnd).matchAll(/<th id="([^"]+)"/g)].map(match => match[1]);
+}
+
+function functionSource(source: string, startMarker: string, endMarker: string): string {
+	const start = source.indexOf(startMarker);
+	const end = source.indexOf(endMarker, start);
+	if (start < 0 || end < 0) {
+		throw new Error(`Function source not found: ${startMarker}`);
+	}
+	return source.slice(start, end);
+}
+
+function expectMarkersInOrder(source: string, markers: readonly string[]): void {
+	let previousIndex = -1;
+	for (const marker of markers) {
+		const markerIndex = source.indexOf(marker, previousIndex + 1);
+		expect(markerIndex, `${marker} should be present after the preceding cell`).toBeGreaterThan(previousIndex);
+		previousIndex = markerIndex;
+	}
+}
+
 describe('iframe project planning protocol', () => {
 	it('publishes bounded display-only rows and verified purchase totals', async () => {
 		const host = new FakeHost();
@@ -184,6 +212,7 @@ describe('iframe project planning protocol', () => {
 			async () => ({ status: 'succeeded' }),
 		);
 		const request = await requestFrom(host);
+		vi.stubGlobal('URL', undefined);
 
 		expect(request).toMatchObject({
 			labels: {
@@ -204,6 +233,8 @@ describe('iframe project planning protocol', () => {
 			costSummaries: [{ currency: 'CNY', recordCount: 1, totalQuantity: 10, totalMinor: 250 }],
 		});
 		expect(JSON.stringify(request)).not.toMatch(/inventory-secret|inventoryItemIds|sourceFingerprint|designators/);
+		expect(parseIFrameProjectPlanningRequest(request)?.purchases[0].productUrl)
+			.toBe('https://item.szlcsc.com/1.html');
 		expect(parseIFrameProjectPlanningRequest({
 			...request,
 			purchases: [{ ...request.purchases[0], totalMinor: 251 }],
@@ -228,6 +259,7 @@ describe('iframe project planning protocol', () => {
 			status: 'operation',
 			operationId: 'operation-1',
 		};
+		vi.stubGlobal('URL', undefined);
 		const setBoardQuantity = {
 			...base,
 			intent: {
@@ -267,12 +299,29 @@ describe('iframe project planning protocol', () => {
 					quantity: 10,
 					unitPriceMinor: 25,
 					currency: 'CNY',
+					productUrl: 'https://example.com/product/1',
 					purchasedAt: '2026-07-22',
 					projectSnapshotIds: ['snapshot-1'],
 				},
 				viewState,
 			},
 		}, 'request-1')).toBeDefined();
+		expect(parseIFrameProjectPlanningEvent({
+			...base,
+			intent: {
+				type: 'add-purchase',
+				draft: {
+					name: 'Resistor',
+					quantity: 10,
+					unitPriceMinor: 25,
+					currency: 'CNY',
+					productUrl: 'https://user:pass@example.com/product/1',
+					purchasedAt: '2026-07-22',
+					projectSnapshotIds: [],
+				},
+				viewState,
+			},
+		}, 'request-1')).toBeUndefined();
 		expect(parseIFrameProjectPlanningEvent({
 			...base,
 			intent: {
@@ -448,5 +497,80 @@ describe('iframe project planning panel', () => {
 		expect(html).toMatch(/id="purchase-form"/);
 		expect(html).toMatch(/id="dialog-backdrop"/);
 		expect(html).not.toMatch(/<link[^>]+href|<script[^>]+src/i);
+	});
+
+	it('orders each table by operational importance', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/project-planning/project-planning.html'), 'utf8');
+
+		expect(tableHeaderIds(html, 'snapshot-table')).toEqual([
+			'snapshot-column-label',
+			'snapshot-column-actions',
+			'snapshot-column-board',
+			'snapshot-column-lines',
+			'snapshot-column-kind',
+			'snapshot-column-captured',
+			'snapshot-column-project',
+			'snapshot-column-document',
+		]);
+		expect(tableHeaderIds(html, 'procurement-table')).toEqual([
+			'procurement-column-name',
+			'procurement-column-part',
+			'procurement-column-shortage',
+			'procurement-column-status',
+			'procurement-column-required',
+			'procurement-column-available',
+			'procurement-column-sources',
+		]);
+		expect(tableHeaderIds(html, 'purchase-table')).toEqual([
+			'purchase-column-name',
+			'purchase-column-actions',
+			'purchase-column-part',
+			'purchase-column-quantity',
+			'purchase-column-total',
+			'purchase-column-unit-price',
+			'purchase-column-date',
+			'purchase-column-platform',
+			'purchase-column-order',
+			'purchase-column-sources',
+		]);
+	});
+
+	it('keeps row cells aligned with the prioritized headers', () => {
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/project-planning/project-planning.ts'), 'utf8');
+		const snapshots = functionSource(source, 'function renderSnapshots(', 'function renderProcurement(');
+		const procurement = functionSource(source, 'function renderProcurement(', 'function renderPurchases(');
+		const purchases = functionSource(source, 'function renderPurchases(', 'function createPurchaseAction(');
+
+		expectMarkersInOrder(snapshots.slice(snapshots.indexOf('return tableRow(')), [
+			'snapshot.label',
+			'actionsCell(setQuantity, remove)',
+			'numericCell(snapshot.boardQuantity)',
+			'numericCell(snapshot.demandCount)',
+			'documentKindLabel(snapshot.documentKind, labels)',
+			'snapshot.capturedAtLabel',
+			'snapshot.projectUuid',
+			'snapshot.documentUuid',
+		]);
+		expectMarkersInOrder(procurement.slice(procurement.indexOf('tableRow(')), [
+			'row.name',
+			'row.lcscPartNumber',
+			'row.suggestedQuantity',
+			'statusCell(row.status, labels)',
+			'row.requiredQuantity',
+			'availableLabel(row, labels)',
+			'row.sources',
+		]);
+		expectMarkersInOrder(purchases.slice(purchases.indexOf('return tableRow(')), [
+			'purchaseNameCell(record)',
+			'actionsCell(remove)',
+			'record.lcscPartNumber',
+			'record.quantity',
+			'record.totalMinor',
+			'record.unitPriceMinor',
+			'record.purchasedAtLabel',
+			'record.platform',
+			'record.orderNumber',
+			'record.projectSnapshotIds',
+		]);
 	});
 });
