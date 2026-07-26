@@ -502,10 +502,33 @@ describe('iframe inventory overview protocol', () => {
 				intent: { ...deleteSelected.operation.intent, confirmed: false },
 			},
 		}, 'request-1')).toBeUndefined();
+		for (const type of ['retry-model', 'attach-model']) {
+			expect(parseIFrameInventoryOverviewResult({
+				...valid,
+				operation: {
+					operationId: `retired-${type}`,
+					intent: {
+						type,
+						item: { id: 'item-1', expectedRevision: 4 },
+						matchToken: 'retired-token',
+						viewState: initialState,
+					},
+				},
+			}, 'request-1')).toBeUndefined();
+		}
 	});
 });
 
 describe('inventory overview category manager markup', () => {
+	it('does not expose the retired EDA model rematching flow', () => {
+		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
+		const source = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.ts'), 'utf8');
+
+		expect(html).not.toContain('operation-retry');
+		expect(source).not.toMatch(/'retry-model'/u);
+		expect(source).not.toMatch(/'attach-model'/u);
+	});
+
 	it('does not use eager HTML autofocus before the EDA host settles focus', () => {
 		const html = readFileSync(resolve('src/platform/jlceda-v3/iframe/inventory-overview/inventory-overview.html'), 'utf8');
 

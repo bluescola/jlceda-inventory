@@ -128,7 +128,6 @@ interface PanelElements {
 	operationTitle: HTMLElement;
 	operationMessage: HTMLElement;
 	operationCancel: HTMLButtonElement;
-	operationRetry: HTMLButtonElement;
 	operationConfirm: HTMLButtonElement;
 	connectionError: HTMLElement;
 }
@@ -252,7 +251,6 @@ function renderPanel(
 	const closeOperationDialog = (restoreFocus = true): void => {
 		elements.operationBackdrop.hidden = true;
 		elements.operationConfirm.hidden = true;
-		elements.operationRetry.hidden = true;
 		if (restoreFocus) {
 			pendingOperation?.trigger?.focus();
 		}
@@ -278,8 +276,7 @@ function renderPanel(
 			...options,
 		};
 		showOperationDialog(actionTitle(action, labels, request.picker?.actionLabel), labels.loading);
-		elements.operationCancel.hidden = action.type !== 'retry-model';
-		elements.operationRetry.hidden = true;
+		elements.operationCancel.hidden = true;
 		elements.operationConfirm.hidden = true;
 		void writeResult({
 			protocolVersion: INVENTORY_OVERVIEW_PROTOCOL_VERSION,
@@ -309,7 +306,6 @@ function renderPanel(
 		const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
 		showOperationDialog(actionTitle(action, labels, request.picker?.actionLabel), message);
 		elements.operationCancel.hidden = false;
-		elements.operationRetry.hidden = true;
 		elements.operationConfirm.hidden = false;
 		elements.operationConfirm.onclick = () => {
 			closeOperationDialog(false);
@@ -334,7 +330,6 @@ function renderPanel(
 					item: { id: item.id, expectedRevision: item.revision },
 				}));
 				elements.operationCancel.hidden = false;
-				elements.operationRetry.hidden = true;
 				elements.operationConfirm.hidden = false;
 				elements.operationConfirm.textContent = labels.editItem;
 				elements.operationConfirm.onclick = () => {
@@ -668,29 +663,12 @@ function renderPanel(
 			state = normalizeOverviewViewState(state, request.categories, request.items);
 			render();
 		}
-		if (result.status === 'model-match') {
-			const match = result;
-			showOperationDialog(labels.retryModel, match.message);
-			elements.operationCancel.hidden = false;
-			elements.operationRetry.hidden = true;
-			elements.operationConfirm.hidden = false;
-			elements.operationConfirm.onclick = () => {
-				closeOperationDialog(false);
-				dispatchIntent({
-					type: 'attach-model',
-					item: match.item,
-					matchToken: match.matchToken,
-				});
-			};
-			return;
-		}
 		if (result.status === 'duplicate-match' && active.intent.type === 'update-item') {
 			const duplicate = result;
 			const updateIntent = active.intent;
 			const sourceItem = request.items.find(item => item.id === duplicate.source.id);
 			showDuplicateComparison(duplicate, labels);
 			elements.operationCancel.hidden = false;
-			elements.operationRetry.hidden = true;
 			elements.operationConfirm.hidden = false;
 			elements.operationConfirm.textContent = labels.confirmMerge;
 			elements.operationConfirm.onclick = () => {
@@ -720,7 +698,7 @@ function renderPanel(
 			};
 			return;
 		}
-		if (result.status === 'failed' || result.status === 'model-missing') {
+		if (result.status === 'failed') {
 			if (active.intent.type === 'place-item' && typeof eda.sys_IFrame?.showIFrame === 'function') {
 				void eda.sys_IFrame.showIFrame(INVENTORY_OVERVIEW_IFRAME_ID).catch(() => undefined);
 			}
@@ -732,14 +710,6 @@ function renderPanel(
 			showOperationDialog(actionTitle(active.intent, labels, request.picker?.actionLabel), result.message);
 			elements.operationCancel.hidden = false;
 			elements.operationConfirm.hidden = true;
-			elements.operationRetry.hidden = active.intent.type !== 'retry-model';
-			if (active.intent.type === 'retry-model') {
-				const retryItem = active.intent.item;
-				elements.operationRetry.onclick = () => {
-					closeOperationDialog(false);
-					dispatchIntent({ type: 'retry-model', item: retryItem });
-				};
-			}
 			return;
 		}
 		if (active.intent.type === 'place-item' && result.status === 'succeeded') {
@@ -1632,9 +1602,6 @@ function actionCell(
 	}
 	if (item.lcscPartNumber) {
 		actions.append(rowAction(labels.openMarketplace, () => finishIntent({ type: 'open-marketplace', item: { id: item.id, expectedRevision: item.revision } })));
-		if (!item.hasEdaModel) {
-			actions.append(rowAction(labels.retryModel, () => finishIntent({ type: 'retry-model', item: { id: item.id, expectedRevision: item.revision } })));
-		}
 	}
 	if (item.hasEdaModel) {
 		actions.append(rowAction(labels.copyCommon, () => finishIntent({ type: 'copy-common', item: { id: item.id, expectedRevision: item.revision } })));
@@ -1815,7 +1782,6 @@ function localizeStaticElements(elements: PanelElements, labels: InventoryOvervi
 	elements.categoryManagerCloseIcon.textContent = '×';
 	elements.categoryManagerCloseIcon.title = labels.cancel;
 	elements.operationCancel.textContent = labels.cancel;
-	elements.operationRetry.textContent = labels.retryModel;
 	elements.operationConfirm.textContent = labels.confirm;
 	setText('bulk-category-label', labels.moveToCategory);
 	setText('bulk-root-category-label', labels.primaryCategory);
@@ -1957,8 +1923,6 @@ function actionTitle(
 		case 'merge-items': return labels.confirmMerge;
 		case 'open-marketplace': return labels.openMarketplace;
 		case 'open-datasheet': return labels.openDatasheet;
-		case 'retry-model':
-		case 'attach-model': return labels.retryModel;
 		case 'copy-common': return labels.copyCommon;
 		case 'delete-item': return labels.deleteItem;
 		case 'delete-items': return labels.deleteSelected;
@@ -2136,7 +2100,6 @@ function showOverviewEditor(
 	const backdrop = element('operation-backdrop', HTMLElement);
 	const message = element('operation-message', HTMLElement);
 	const cancel = element('operation-cancel', HTMLButtonElement);
-	const retry = element('operation-retry', HTMLButtonElement);
 	const confirm = element('operation-confirm', HTMLButtonElement);
 	element('operation-title', HTMLElement).textContent = labels.editItem;
 	const draft = initialDraft ?? {
@@ -2256,7 +2219,6 @@ function showOverviewEditor(
 	message.replaceChildren(form);
 	backdrop.hidden = false;
 	cancel.hidden = false;
-	retry.hidden = true;
 	confirm.hidden = false;
 	confirm.textContent = labels.save;
 	cancel.onclick = () => {
@@ -2545,7 +2507,6 @@ function getElements(): PanelElements {
 		operationTitle: element('operation-title', HTMLElement),
 		operationMessage: element('operation-message', HTMLElement),
 		operationCancel: element('operation-cancel', HTMLButtonElement),
-		operationRetry: element('operation-retry', HTMLButtonElement),
 		operationConfirm: element('operation-confirm', HTMLButtonElement),
 		connectionError: element('connection-error', HTMLElement),
 	};

@@ -29,7 +29,7 @@ import { normalizePurchaseRecord } from '../../project-planning/application/purc
 import { sanitizeProjectDemandSnapshot } from '../../project-planning/domain/project-planning';
 import { normalizeInventoryCategory, normalizeInventoryCategoryName } from '../domain/inventory-category';
 import { cloneInventoryDocument } from '../domain/inventory-document';
-import { inventoryIdentityKey, normalizeInventoryItem, normalizeInventoryText, normalizeMinimumQuantity, normalizeQuantity, sanitizeEdaModelReferenceText } from '../domain/inventory-item';
+import { inventoryIdentityKey, normalizeInventoryItem, normalizeInventoryText, normalizeMinimumQuantity, normalizeQuantity } from '../domain/inventory-item';
 import { sanitizeOrderImportFileSummary } from '../domain/order-import-batch';
 import { normalizeSubstituteLink, substitutePairKey } from '../domain/substitute-link';
 import { InventoryDocumentRevisionConflictError } from '../ports/inventory-repository';
@@ -683,30 +683,6 @@ export class InventoryService {
 
 	public async markDepleted(id: string): Promise<InventoryItem> {
 		return this.updateQuantity(id, 0, 'exact');
-	}
-
-	public attachEdaModel(id: string, reference: EdaModelReference): Promise<InventoryItem>;
-	public attachEdaModel(id: string, expectedRevision: number, reference: EdaModelReference): Promise<InventoryItem>;
-	public async attachEdaModel(
-		id: string,
-		expectedRevisionOrReference: number | EdaModelReference,
-		reference?: EdaModelReference,
-	): Promise<InventoryItem> {
-		const expectedRevision = typeof expectedRevisionOrReference === 'number' ? expectedRevisionOrReference : undefined;
-		const nextReference = typeof expectedRevisionOrReference === 'number' ? reference : expectedRevisionOrReference;
-		if (!nextReference) {
-			throw new TypeError('EDA model reference is required.');
-		}
-		const transform = (item: InventoryItem, timestamp: string): InventoryItem => ({
-			...item,
-			edaModelReference: sanitizeEdaModelReferenceText(nextReference),
-			edaModelStatus: 'available',
-			updatedAt: timestamp,
-			revision: item.revision + 1,
-		});
-		return expectedRevision === undefined
-			? this.update(id, transform)
-			: this.updateWithRevision(id, expectedRevision, transform);
 	}
 
 	public async remove(id: string): Promise<boolean> {

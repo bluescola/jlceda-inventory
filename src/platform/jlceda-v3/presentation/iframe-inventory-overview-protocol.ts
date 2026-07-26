@@ -186,7 +186,6 @@ const LABEL_KEYS = [
 	'deleteItem',
 	'openMarketplace',
 	'openDatasheet',
-	'retryModel',
 	'copyCommon',
 	'emptyResults',
 	'pageSize',
@@ -284,8 +283,7 @@ export interface IFrameInventoryOverviewSnapshotUpdate {
 
 type InventoryOverviewOperationResultSnapshot
 	= | { status: 'succeeded' | 'cancelled'; message?: string; snapshot?: InventoryOverviewSnapshotPayload }
-		| { status: 'failed' | 'model-missing'; message: string; snapshot?: InventoryOverviewSnapshotPayload }
-		| { status: 'model-match'; message: string; matchToken: string; item: InventoryOverviewRevisionRef }
+		| { status: 'failed'; message: string; snapshot?: InventoryOverviewSnapshotPayload }
 		| {
 			status: 'duplicate-match';
 			matchToken: string;
@@ -495,9 +493,6 @@ function createItemSnapshot(item: InventoryOverviewInput['items'][number]): Inve
 }
 
 function createOperationResultSnapshot(result: InventoryOverviewOperationResult): InventoryOverviewOperationResultSnapshot {
-	if (result.status === 'model-match') {
-		return { ...result, item: { ...result.item } };
-	}
 	if (result.status === 'duplicate-match') {
 		return {
 			...result,
@@ -533,7 +528,6 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 		|| intent.type === 'edit-item'
 		|| intent.type === 'open-marketplace'
 		|| intent.type === 'open-datasheet'
-		|| intent.type === 'retry-model'
 		|| intent.type === 'copy-common'
 		|| intent.type === 'delete-item') {
 		return { ...intent, item: { ...intent.item }, viewState: cloneViewState(intent.viewState) };
@@ -560,9 +554,6 @@ function cloneIntent(intent: InventoryOverviewIntent): InventoryOverviewIntent {
 			viewState: cloneViewState(intent.viewState),
 		};
 	}
-	if (intent.type === 'attach-model') {
-		return { ...intent, item: { ...intent.item }, viewState: cloneViewState(intent.viewState) };
-	}
 	if (intent.type === 'rename-category' || intent.type === 'delete-category') {
 		return { ...intent, category: { ...intent.category }, viewState: cloneViewState(intent.viewState) };
 	}
@@ -587,9 +578,6 @@ function cloneViewState(value: InventoryOverviewViewState): InventoryOverviewVie
 function cloneOperationResultSnapshot(
 	result: InventoryOverviewOperationResultSnapshot,
 ): InventoryOverviewOperationResultSnapshot {
-	if (result.status === 'model-match') {
-		return { ...result, item: { ...result.item } };
-	}
 	if (result.status === 'duplicate-match') {
 		return {
 			...result,
@@ -626,14 +614,8 @@ function isIntent(value: unknown): value is InventoryOverviewIntent {
 		|| value.type === 'edit-item'
 		|| value.type === 'open-marketplace'
 		|| value.type === 'open-datasheet'
-		|| value.type === 'retry-model'
 		|| value.type === 'copy-common')
 	&& isRevisionRef(value.item)) {
-		return true;
-	}
-	if (value.type === 'attach-model'
-		&& isRevisionRef(value.item)
-		&& isNonEmptyText(value.matchToken, 200)) {
 		return true;
 	}
 	if (value.type === 'update-item'
@@ -690,11 +672,6 @@ function isOperationResultSnapshot(value: unknown): value is InventoryOverviewOp
 	if (!isRecord(value) || !isText(value.status, 100)) {
 		return false;
 	}
-	if (value.status === 'model-match') {
-		return isText(value.message, 1000)
-			&& isNonEmptyText(value.matchToken, 200)
-			&& isRevisionRef(value.item);
-	}
 	if (value.status === 'duplicate-match') {
 		return isNonEmptyText(value.matchToken, 200)
 			&& isRevisionRef(value.source)
@@ -704,11 +681,10 @@ function isOperationResultSnapshot(value: unknown): value is InventoryOverviewOp
 	}
 	if (value.status !== 'succeeded'
 		&& value.status !== 'cancelled'
-		&& value.status !== 'failed'
-		&& value.status !== 'model-missing') {
+		&& value.status !== 'failed') {
 		return false;
 	}
-	if ((value.status === 'failed' || value.status === 'model-missing') && !isText(value.message, 1000)) {
+	if (value.status === 'failed' && !isText(value.message, 1000)) {
 		return false;
 	}
 	return (value.message === undefined || isText(value.message, 1000))

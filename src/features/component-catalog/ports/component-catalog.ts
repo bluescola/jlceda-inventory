@@ -10,5 +10,4 @@ export interface EdaModel {
 
 export interface EdaModelCatalog {
 	findByLcscPartNumber: (partNumber: string) => Promise<EdaModel | undefined>;
-	search: (query: string, limit?: number) => Promise<EdaModel[]>;
 }

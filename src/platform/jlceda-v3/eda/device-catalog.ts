@@ -15,15 +15,6 @@ export class EdaDeviceCatalog implements EdaModelCatalog {
 		return first ? this.hydrate(first, normalized) : undefined;
 	}
 
-	public async search(query: string, limit = 20): Promise<EdaModel[]> {
-		const matches = await eda.lib_Device.search(query, undefined, undefined, undefined, limit, 1);
-		const hydrated: EdaModel[] = [];
-		for (const match of matches.slice(0, limit)) {
-			hydrated.push(await this.hydrate(match));
-		}
-		return hydrated;
-	}
-
 	private async hydrate(item: SearchItem, fallbackLcscPartNumber?: string): Promise<EdaModel> {
 		const details = await eda.lib_Device.get(item.uuid, item.libraryUuid);
 		const properties = details?.property;

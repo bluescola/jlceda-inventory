@@ -67,12 +67,6 @@ interface StockInput {
 	location?: string;
 }
 
-interface PendingOverviewModelMatch {
-	itemId: string;
-	expectedRevision: number;
-	model: EdaModel;
-}
-
 interface PendingOverviewDuplicateMatch {
 	categoryId?: string;
 	input: InventoryEditInput;
@@ -157,7 +151,6 @@ export class NativeInventoryController {
 		const context = { document: await this.inventory.exportDocument() };
 		this.inventoryOverviewSessions.add(context);
 		this.synchronizeInventoryOverviewSessions(context.document);
-		const pendingModelMatches = new Map<string, PendingOverviewModelMatch>();
 		const pendingDuplicateMatches = new Map<string, PendingOverviewDuplicateMatch>();
 		try {
 			await this.inventoryOverviewPanel.open({
@@ -172,14 +165,10 @@ export class NativeInventoryController {
 					operation.intent,
 					context.document.items,
 					context.document.categories,
-					pendingModelMatches,
 					pendingDuplicateMatches,
 					trace,
 				);
-				if (result.status === 'model-match'
-					|| result.status === 'duplicate-match'
-					|| result.status === 'model-missing'
-					|| result.status === 'failed') {
+				if (result.status === 'duplicate-match' || result.status === 'failed') {
 					return result;
 				}
 				context.document = await this.inventory.exportDocument();
@@ -1895,7 +1884,6 @@ export class NativeInventoryController {
 		intent: InventoryOverviewIntent,
 		items: readonly InventoryItem[],
 		categories: readonly InventoryCategory[],
-		pendingModelMatches: Map<string, PendingOverviewModelMatch>,
 		pendingDuplicateMatches: Map<string, PendingOverviewDuplicateMatch>,
 		trace?: DiagnosticTrace,
 	): Promise<InventoryOverviewOperationResult> {
@@ -1928,31 +1916,6 @@ export class NativeInventoryController {
 						return { status: 'failed', message: this.t('inventoryItem.datasheetOpenFailed') };
 					}
 					break;
-				case 'retry-model':
-					return await this.prepareOverviewModelMatch(item!, pendingModelMatches);
-				case 'attach-model': {
-					const pending = pendingModelMatches.get(intent.matchToken);
-					if (!pending || pending.itemId !== intent.item.id || pending.expectedRevision !== intent.item.expectedRevision) {
-						throw new InventoryRevisionConflictError(intent.item.id, intent.item.expectedRevision, item?.revision);
-					}
-					const latest = await this.inventory.get(intent.item.id);
-					assertOverviewItemRevision(latest, intent.item.expectedRevision);
-					const update = await this.inventory.updateItem(
-						latest.id,
-						intent.item.expectedRevision,
-						createInventoryEditInput(
-							inventoryItemDraft(latest),
-							latest.marketplaceReference,
-							pending.model.reference,
-							'available',
-						),
-					);
-					if (update.status === 'duplicate') {
-						return { status: 'failed', message: this.t('inventoryItem.compareTitle') };
-					}
-					pendingModelMatches.delete(intent.matchToken);
-					return { status: 'succeeded', message: this.t('edaModel.attached') };
-				}
 				case 'copy-common':
 					return await this.copyToCommonLibrary(item!);
 				case 'delete-item': {
@@ -2136,82 +2099,6 @@ export class NativeInventoryController {
 		return { status: 'succeeded', message: this.t('inventory.merged') };
 	}
 
-	private async prepareOverviewModelMatch(
-		item: InventoryItem,
-		pendingModelMatches: Map<string, PendingOverviewModelMatch>,
-	): Promise<InventoryOverviewOperationResult> {
-		const partNumber = item.identity.lcscPartNumber;
-		let model: EdaModel | undefined;
-		if (partNumber) {
-			const lookup = await this.lookupEdaModel(partNumber);
-			model = lookup.model;
-		}
-		if (!model) {
-			const defaultQuery = partNumber
-				?? item.identity.manufacturerPartNumber
-				?? item.identity.name;
-			const query = await this.dialog.input({
-				title: this.t('edaModel.searchTitle'),
-				label: this.t('edaModel.searchPrompt'),
-				value: defaultQuery,
-			});
-			if (query === undefined) {
-				return { status: 'cancelled' };
-			}
-			const normalizedQuery = normalizeInventoryText(query);
-			if (!normalizedQuery) {
-				return { status: 'model-missing', message: this.t('edaModel.stillMissing') };
-			}
-			let candidates: EdaModel[];
-			try {
-				candidates = deduplicateEdaModels(await this.edaModels.search(normalizedQuery, 20));
-			}
-			catch {
-				return { status: 'failed', message: this.t('edaModel.lookupFailed') };
-			}
-			if (candidates.length === 0) {
-				return { status: 'model-missing', message: this.t('edaModel.stillMissing') };
-			}
-			if (candidates.length === 1) {
-				model = candidates[0];
-			}
-			else {
-				const selectedIndex = await this.dialog.select(
-					candidates.map((candidate, index) => ({
-						value: String(index),
-						label: formatEdaModelCandidate(candidate),
-					})),
-					this.t('edaModel.searchTitle'),
-					this.t('edaModel.selectCandidate'),
-				);
-				if (selectedIndex === undefined) {
-					return { status: 'cancelled' };
-				}
-				model = candidates[Number(selectedIndex)];
-				if (!model) {
-					return { status: 'failed', message: this.t('edaModel.lookupFailed') };
-				}
-			}
-		}
-		const matchToken = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-		pendingModelMatches.set(matchToken, {
-			expectedRevision: item.revision,
-			itemId: item.id,
-			model,
-		});
-		return {
-			status: 'model-match',
-			item: { id: item.id, expectedRevision: item.revision },
-			matchToken,
-			message: [
-				`${this.t('part.nameLabel')}: ${model.identity.name}`,
-				`${this.t('part.lcscLabel')}: ${model.identity.lcscPartNumber ?? partNumber ?? '-'}`,
-				`${this.t('part.manufacturerPartLabel')}: ${model.identity.manufacturerPartNumber ?? '-'}`,
-				`${this.t('part.packageLabel')}: ${model.identity.package ?? '-'}`,
-			].join('\n'),
-		};
-	}
-
 	private async handleInventoryAction(item: InventoryItem | undefined, action: string | undefined, locationOptions: readonly string[]): Promise<void> {
 		if (!item) {
 			this.dialog.info(this.t('inventory.concurrentMissing'));
@@ -2232,9 +2119,6 @@ export class NativeInventoryController {
 				if (item.identity.lcscPartNumber) {
 					this.marketplace.openSearch(item.identity.lcscPartNumber);
 				}
-				break;
-			case 'retry-model':
-				await this.retryEdaModel(item);
 				break;
 			case 'copy':
 				await this.copyToCommonLibrary(item);
@@ -2700,24 +2584,6 @@ export class NativeInventoryController {
 		};
 	}
 
-	private async retryEdaModel(item: InventoryItem): Promise<void> {
-		const partNumber = item.identity.lcscPartNumber;
-		if (!partNumber) {
-			return;
-		}
-		const lookup = await this.lookupEdaModel(partNumber);
-		if (lookup.status === 'failed') {
-			this.dialog.info(this.t('edaModel.lookupFailed'), this.t('edaModel.section'));
-			return;
-		}
-		if (!lookup.model) {
-			this.dialog.info(this.t('edaModel.stillMissing'), this.t('edaModel.section'));
-			return;
-		}
-		await this.inventory.attachEdaModel(item.id, lookup.model.reference);
-		this.dialog.info(this.t('edaModel.attached'), this.t('edaModel.section'));
-	}
-
 	private formatMarketplaceStatus(item: InventoryItem): string {
 		if (!item.marketplaceReference) {
 			return this.t(item.identity.lcscPartNumber ? 'marketplace.unconfirmed' : 'marketplace.notLinked');
@@ -2920,28 +2786,6 @@ function automaticBackupPathDiagnostics(path: string): { pathKind: string; pathL
 	return { pathKind, pathLength: normalized.length };
 }
 
-function deduplicateEdaModels(models: readonly EdaModel[]): EdaModel[] {
-	const unique = new Map<string, EdaModel>();
-	for (const model of models) {
-		const key = `${model.reference.libraryUuid}:${model.reference.deviceUuid}`;
-		if (!unique.has(key)) {
-			unique.set(key, model);
-		}
-	}
-	return [...unique.values()];
-}
-
-function formatEdaModelCandidate(model: EdaModel): string {
-	return [
-		model.identity.lcscPartNumber,
-		model.identity.manufacturerPartNumber,
-		model.identity.name,
-		model.identity.package,
-		model.reference.symbolName,
-		model.reference.footprintName,
-	].filter((value): value is string => Boolean(value)).join(' | ');
-}
-
 function matchesSelectedDesignComponent(item: InventoryItem, component: DesignComponentSnapshot): boolean {
 	const itemPartNumber = normalizeLcscPartNumber(item.identity.lcscPartNumber ?? item.identity.supplierId);
 	const componentPartNumber = normalizeLcscPartNumber(component.lcscPartNumber);
@@ -3117,28 +2961,6 @@ function createInventoryEditInput(
 			? undefined
 			: draft.structuredLocation,
 		note: optionalText(draft.note),
-	};
-}
-
-function inventoryItemDraft(item: InventoryItem): InventoryItemEditDraft {
-	return {
-		identity: {
-			name: item.identity.name,
-			lcscPartNumber: item.identity.lcscPartNumber ?? '',
-			supplierId: item.identity.supplierId ?? '',
-			manufacturer: item.identity.manufacturer ?? '',
-			manufacturerPartNumber: item.identity.manufacturerPartNumber ?? '',
-			package: item.identity.package ?? '',
-			description: item.identity.description ?? '',
-		},
-		location: item.location ?? '',
-		datasheetUrl: item.datasheetUrl,
-		structuredLocation: item.structuredLocation ? { ...item.structuredLocation } : undefined,
-		note: item.note ?? '',
-		precision: item.precision === 'estimated' ? 'estimated' : 'exact',
-		quantity: item.quantity ?? 0,
-		minimumQuantity: item.minimumQuantity,
-		favorite: item.favorite === true,
 	};
 }
 

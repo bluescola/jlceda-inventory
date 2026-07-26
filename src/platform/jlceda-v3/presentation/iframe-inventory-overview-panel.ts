@@ -744,7 +744,6 @@ export class IFrameInventoryOverviewPanel implements InventoryOverviewPanel {
 			deleteItem: this.t('inventoryOverview.deleteItem'),
 			openMarketplace: this.t('marketplace.open'),
 			openDatasheet: this.t('inventoryItem.openDatasheet'),
-			retryModel: this.t('edaModel.retry'),
 			copyCommon: this.t('inventory.copyCommon'),
 			emptyResults: this.t('inventoryOverview.emptyResults'),
 			pageSize: this.t('inventoryOverview.pageSize'),

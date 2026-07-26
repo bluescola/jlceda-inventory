@@ -129,7 +129,6 @@ function createController(
 		'saved-item',
 	));
 	const openSearch = vi.fn();
-	const searchModels = vi.fn().mockResolvedValue([]);
 	const createReference = vi.fn((partNumber: string) => ({
 		provider: 'lcsc' as const,
 		productUrl: `https://so.szlcsc.com/global.html?k=${partNumber}`,
@@ -208,7 +207,6 @@ function createController(
 		reorderCategories: vi.fn(),
 		moveItemsToCategory: vi.fn(),
 		importCategories: vi.fn().mockResolvedValue({ added: 0, skipped: 0 }),
-		attachEdaModel: vi.fn(),
 		previewBomStockOut: vi.fn(),
 		commitBomStockOut: vi.fn(),
 		previewStockOutReversal: vi.fn(),
@@ -320,7 +318,7 @@ function createController(
 	};
 	const controller = new NativeInventoryController(
 		inventory as unknown as InventoryService,
-		{ findByLcscPartNumber, search: searchModels } as EdaModelCatalog,
+		{ findByLcscPartNumber } as EdaModelCatalog,
 		{ openSearch, createReference } as MarketplaceNavigator,
 		commonLibrary as CommonLibrary,
 		files as unknown as EdaFileClient,
@@ -349,7 +347,7 @@ function createController(
 		projectPlanningPanel,
 		externalLinkNavigator,
 	);
-	return { add, commonLibrary, controller, createReference, designStockCheckPanel, diagnostics, dialog, externalLinkNavigator, files, inventory, inventoryCreatePanel, inventoryItemPanel, inventoryOverviewPanel, openSearch, orderImportPanel, placement, productDetailsForm, searchModels, trace };
+	return { add, commonLibrary, controller, createReference, designStockCheckPanel, diagnostics, dialog, externalLinkNavigator, files, inventory, inventoryCreatePanel, inventoryItemPanel, inventoryOverviewPanel, openSearch, orderImportPanel, placement, productDetailsForm, trace };
 }
 
 function createAutomaticBackup(settings: { enabled: boolean; path?: string } = { enabled: false }) {
@@ -2549,117 +2547,6 @@ describe('nativeInventoryController inventory management', () => {
 		expect(context.inventory.get).toHaveBeenCalledWith(item.id);
 		expect(context.dialog.confirm).not.toHaveBeenCalled();
 		expect(context.inventory.remove).toHaveBeenCalledWith(item.id);
-	});
-
-	it('returns an EDA model match for in-overview confirmation and checks revision before attaching', async () => {
-		const item = createInventoryItem();
-		const context = createController(vi.fn().mockResolvedValue(edaModel), [], []);
-		context.inventory.exportDocument.mockResolvedValue({
-			schemaVersion: 3,
-			revision: 1,
-			updatedAt: '2026-07-21T00:00:00.000Z',
-			categories: [],
-			items: [item],
-		});
-		context.inventory.get.mockResolvedValue(item);
-		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
-			const match = await onOperation({
-				operationId: 'retry-model',
-				intent: {
-					type: 'retry-model',
-					item: { id: item.id, expectedRevision: item.revision },
-					viewState: overviewViewState,
-				},
-			});
-			expect(context.inventory.updateItem).not.toHaveBeenCalled();
-			expect(match).toMatchObject({
-				status: 'model-match',
-				item: { id: item.id, expectedRevision: item.revision },
-			});
-			if (match.status !== 'model-match') {
-				throw new Error('Expected model match.');
-			}
-			const attached = await onOperation({
-				operationId: 'attach-model',
-				intent: {
-					type: 'attach-model',
-					item: match.item,
-					matchToken: match.matchToken,
-					viewState: overviewViewState,
-				},
-			});
-			expect(attached.status).toBe('succeeded');
-		});
-
-		await context.controller.openInventory();
-
-		expect(context.inventory.get).toHaveBeenCalledWith(item.id);
-		expect(context.inventory.updateItem).toHaveBeenCalledWith(
-			item.id,
-			item.revision,
-			expect.objectContaining({ edaModelReference: edaModel.reference, edaModelStatus: 'available' }),
-		);
-	});
-
-	it('searches and lets the user select a model candidate when exact C-number lookup misses', async () => {
-		const item = createInventoryItem();
-		const selectedModel: EdaModel = {
-			...edaModel,
-			identity: { ...edaModel.identity, name: 'Selected candidate', manufacturerPartNumber: 'ALT-2' },
-			reference: { ...edaModel.reference, deviceUuid: 'device-alt-2' },
-		};
-		const context = createController(vi.fn().mockResolvedValue(undefined), ['ALT'], ['1']);
-		context.searchModels.mockResolvedValue([edaModel, selectedModel]);
-		context.inventory.exportDocument.mockResolvedValue({
-			schemaVersion: 5,
-			revision: 1,
-			updatedAt: '2026-07-21T00:00:00.000Z',
-			categories: [],
-			items: [item],
-			orderImportBatches: [],
-		});
-		context.inventory.get.mockResolvedValue(item);
-		context.inventory.updateItem.mockResolvedValue({
-			status: 'updated',
-			item: { ...item, edaModelReference: selectedModel.reference, edaModelStatus: 'available' },
-		});
-		context.inventoryOverviewPanel.open.mockImplementation(async (_input, onOperation) => {
-			const match = await onOperation({
-				operationId: 'search-model',
-				intent: {
-					type: 'retry-model',
-					item: { id: item.id, expectedRevision: item.revision },
-					viewState: overviewViewState,
-				},
-			});
-			expect(match.status).toBe('model-match');
-			if (match.status !== 'model-match') {
-				throw new Error('Expected model candidate match.');
-			}
-			await onOperation({
-				operationId: 'attach-selected-model',
-				intent: {
-					type: 'attach-model',
-					item: match.item,
-					matchToken: match.matchToken,
-					viewState: overviewViewState,
-				},
-			});
-		});
-
-		await context.controller.openInventory();
-
-		expect(context.searchModels).toHaveBeenCalledWith('ALT', 20);
-		expect(context.dialog.select).toHaveBeenCalledWith(
-			expect.arrayContaining([expect.objectContaining({ value: '1', label: expect.stringContaining('ALT-2') })]),
-			'edaModel.searchTitle',
-			'edaModel.selectCandidate',
-		);
-		expect(context.inventory.updateItem).toHaveBeenCalledWith(
-			item.id,
-			item.revision,
-			expect.objectContaining({ edaModelReference: selectedModel.reference }),
-		);
 	});
 
 	it('saves a full in-overview edit through the revision-checked inventory update path', async () => {

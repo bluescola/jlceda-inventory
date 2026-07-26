@@ -73,8 +73,6 @@ export type InventoryOverviewAction
 		| { type: 'merge-items'; source: InventoryOverviewRevisionRef; target: InventoryOverviewRevisionRef; matchToken: string; categoryId?: string }
 		| { type: 'open-marketplace'; item: InventoryOverviewRevisionRef }
 		| { type: 'open-datasheet'; item: InventoryOverviewRevisionRef }
-		| { type: 'retry-model'; item: InventoryOverviewRevisionRef }
-		| { type: 'attach-model'; item: InventoryOverviewRevisionRef; matchToken: string }
 		| { type: 'copy-common'; item: InventoryOverviewRevisionRef }
 		| { type: 'delete-item'; item: InventoryOverviewRevisionRef; confirmed: true }
 		| { type: 'delete-items'; items: InventoryOverviewRevisionRef[]; confirmed: true }
@@ -101,8 +99,7 @@ export interface InventoryOverviewSnapshot {
 
 export type InventoryOverviewOperationResult
 	= | { status: 'succeeded' | 'cancelled'; message?: string; snapshot?: InventoryOverviewSnapshot }
-		| { status: 'failed' | 'model-missing'; message: string; snapshot?: InventoryOverviewSnapshot }
-		| { status: 'model-match'; message: string; matchToken: string; item: InventoryOverviewRevisionRef }
+		| { status: 'failed'; message: string; snapshot?: InventoryOverviewSnapshot }
 		| {
 			status: 'duplicate-match';
 			matchToken: string;

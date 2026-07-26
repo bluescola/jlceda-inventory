@@ -992,7 +992,7 @@ describe('inventoryService', () => {
 		expect(product.note).toBe('checked');
 	});
 
-	it('stores marketplace products without an EDA model and can attach one later', async () => {
+	it('stores and reimports marketplace products without an EDA model', async () => {
 		const service = createService();
 		const product = await service.add({
 			identity: {
@@ -1017,16 +1017,6 @@ describe('inventoryService', () => {
 		expect(product.edaModelStatus).toBe('missing');
 		expect(product.quantity).toBe(5);
 
-		const linked = await service.attachEdaModel(product.id, {
-			deviceUuid: 'device-233991',
-			libraryUuid: 'system-library',
-			symbolName: 'Microphone',
-			footprintName: 'SMD-D9.7mm\u200B',
-		});
-		expect(linked.edaModelStatus).toBe('available');
-		expect(linked.edaModelReference?.deviceUuid).toBe('device-233991');
-		expect(linked.edaModelReference?.footprintName).toBe('SMD-D9.7mm');
-
 		const reimported = await service.add({
 			identity: { name: 'Order microphone', lcscPartNumber: 'C233991' },
 			marketplaceReference: {
@@ -1040,23 +1030,5 @@ describe('inventoryService', () => {
 			source: 'order',
 		}, 'add');
 		expect(reimported.marketplaceReference?.evidence).toBe('user-confirmed');
-	});
-
-	it('uses revision checks when attaching an EDA model from an interactive match', async () => {
-		const service = createService();
-		const product = await service.add({
-			identity: { name: 'Microphone', lcscPartNumber: 'C233991' },
-			quantity: 5,
-			precision: 'exact',
-			source: 'marketplace',
-		});
-		await service.updateQuantity(product.id, 4, 'exact');
-
-		await expect(service.attachEdaModel(product.id, product.revision, {
-			deviceUuid: 'device-233991',
-			libraryUuid: 'system-library',
-		}))
-			.rejects
-			.toBeInstanceOf(InventoryRevisionConflictError);
 	});
 });
