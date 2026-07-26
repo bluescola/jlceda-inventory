@@ -27,6 +27,7 @@
 	},
 	"dependencies": {
 		"papaparse": "^5.5.4",
+		"uri-js": "^4.4.1",
 		"xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
 	},
 	"devDependencies": {

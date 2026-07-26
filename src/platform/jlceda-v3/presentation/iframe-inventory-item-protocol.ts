@@ -1,6 +1,7 @@
 import type { InventoryItem, PartIdentity, QuantityPrecision, StockState } from '../../../features/inventory/domain/inventory-item';
 import type { StructuredInventoryLocation } from '../../../features/inventory/domain/inventory-metadata';
 import type { ReplenishmentStatus } from '../../../features/inventory/domain/replenishment';
+import { isSafeHttpUrl } from '../../../features/inventory/domain/inventory-metadata';
 import { classifyReplenishment } from '../../../features/inventory/domain/replenishment';
 
 export const INVENTORY_ITEM_IFRAME_ID = 'jlceda-inventory-item-panel';
@@ -415,13 +416,7 @@ function isDatasheetUrl(value: unknown): value is string {
 	if (!value) {
 		return true;
 	}
-	try {
-		const url = new URL(value);
-		return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
-	}
-	catch {
-		return false;
-	}
+	return isSafeHttpUrl(value.trim());
 }
 
 function isSuggestion(value: unknown): value is InventoryItemSuggestion {

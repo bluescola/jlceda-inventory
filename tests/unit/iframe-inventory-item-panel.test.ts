@@ -72,6 +72,7 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
 });
 
 class FakeHost implements InventoryItemIFrameHost {
@@ -147,6 +148,7 @@ describe('iframe inventory item protocol', () => {
 		const panel = new IFrameInventoryItemPanel(t, host);
 		const pending = panel.edit(item);
 		const request = await requestFrom(host);
+		vi.stubGlobal('URL', undefined);
 
 		expect(request).toMatchObject({
 			mode: 'edit',
@@ -166,6 +168,8 @@ describe('iframe inventory item protocol', () => {
 			},
 			locationOptions: [],
 		});
+		expect(parseIFrameInventoryItemRequest(request)?.item.datasheetUrl)
+			.toBe('https://example.com/original.pdf');
 		expect(parseIFrameInventoryItemResult({
 			protocolVersion: INVENTORY_ITEM_PROTOCOL_VERSION,
 			requestId: request.requestId,

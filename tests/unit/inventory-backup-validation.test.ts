@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	InventoryBackupValidationError,
 	MAX_INVENTORY_BACKUP_CATEGORIES,
@@ -16,6 +16,8 @@ import {
 import { INVENTORY_SCHEMA_VERSION } from '../../src/features/inventory/domain/inventory-document';
 
 const TIMESTAMP = '2026-07-22T08:30:00.000Z';
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('inventory backup validation', () => {
 	it.each([1, 2, 3, 4, 5, 6, 7, 8] as const)('accepts and migrates schema v%d', (schemaVersion) => {
@@ -214,6 +216,16 @@ describe('inventory backup validation', () => {
 		const invalidLocation = createDocument(8);
 		invalidLocation.items[0].structuredLocation = { cabinet: 1 };
 		expectValidation(invalidLocation, 'invalid-field', 'items[0].structuredLocation');
+	});
+
+	it('preserves a valid datasheet URL when the native runtime does not provide URL', () => {
+		vi.stubGlobal('URL', undefined);
+		const source = createDocument(9);
+		source.items[0].datasheetUrl = 'https://example.com/test.pdf';
+
+		const result = validateInventoryBackup(source);
+
+		expect(result.document.items[0].datasheetUrl).toBe('https://example.com/test.pdf');
 	});
 
 	it('rejects duplicate inventory, category, and batch IDs', () => {

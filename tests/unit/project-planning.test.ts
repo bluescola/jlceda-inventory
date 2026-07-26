@@ -1,12 +1,14 @@
 import type { InventoryItem } from '../../src/features/inventory/domain/inventory-item';
 import type { NewPurchaseRecord, ProjectDemandSnapshot } from '../../src/features/project-planning/domain/project-planning';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analyzeProjectDemand, createProcurementSuggestions } from '../../src/features/project-planning/application/analyze-project-demand';
 import { createProjectSnapshot } from '../../src/features/project-planning/application/create-project-snapshot';
 import { diffProjectSnapshots } from '../../src/features/project-planning/application/diff-project-snapshots';
 import { createProcurementCsv } from '../../src/features/project-planning/application/export-procurement-csv';
 import { normalizePurchaseRecord, summarizePurchaseCosts } from '../../src/features/project-planning/application/purchase-cost';
 import { sanitizeProjectDemandSnapshot, sanitizePurchaseRecord } from '../../src/features/project-planning/domain/project-planning';
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('project planning', () => {
 	it('captures stable single-board demand with project and document UUIDs', async () => {
@@ -141,6 +143,19 @@ describe('project planning', () => {
 		const persistedPurchase = normalizePurchaseRecord(purchase({}), 'purchase-1', '2026-07-22T02:00:00Z');
 		expect(sanitizePurchaseRecord(persistedPurchase)).toEqual(persistedPurchase);
 		expect(() => sanitizePurchaseRecord({ ...persistedPurchase, productUrl: 'file:///tmp/a.pdf' })).toThrow('HTTP or HTTPS');
+	});
+
+	it('sanitizes purchase links when the native runtime does not provide URL', () => {
+		vi.stubGlobal('URL', undefined);
+		const persistedPurchase = normalizePurchaseRecord(purchase({
+			productUrl: 'https://example.com/product/1',
+		}), 'purchase-1', '2026-07-22T02:00:00Z');
+
+		expect(sanitizePurchaseRecord(persistedPurchase).productUrl).toBe('https://example.com/product/1');
+		expect(() => sanitizePurchaseRecord({
+			...persistedPurchase,
+			productUrl: 'https://user:pass@example.com/product/1',
+		})).toThrow('HTTP or HTTPS');
 	});
 });
 

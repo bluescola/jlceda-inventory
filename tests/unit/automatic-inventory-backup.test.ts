@@ -1,6 +1,6 @@
 import type { InventoryRepository } from '../../src/features/inventory/ports/inventory-repository';
 import type { AutomaticBackupHost } from '../../src/platform/jlceda-v3/persistence/automatic-inventory-backup';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InventoryService } from '../../src/features/inventory/application/inventory-service';
 import { cloneInventoryDocument, createEmptyInventoryDocument } from '../../src/features/inventory/domain/inventory-document';
 import {
@@ -10,6 +10,8 @@ import {
 	sanitizeAutomaticBackupSettings,
 	selectDirectoryThroughClientApi,
 } from '../../src/platform/jlceda-v3/persistence/automatic-inventory-backup';
+
+afterEach(() => vi.unstubAllGlobals());
 
 function createHost(initial: unknown = { enabled: true, path: 'C:\\backup\\inventory.json' }): AutomaticBackupHost & {
 	settings: unknown;
@@ -70,6 +72,15 @@ describe('edaAutomaticInventoryBackup', () => {
 	});
 
 	it('converts a file URL selected by the host into the native path expected by the file APIs', async () => {
+		const host = createHost({ enabled: false });
+		host.selectFolder.mockResolvedValueOnce('file:///C:/Users/tester/My%20Documents');
+		const backup = new EdaAutomaticInventoryBackup(host);
+
+		await expect(backup.selectFolder()).resolves.toBe('C:\\Users\\tester\\My Documents');
+	});
+
+	it('converts a host file URL when the native runtime does not provide URL', async () => {
+		vi.stubGlobal('URL', undefined);
 		const host = createHost({ enabled: false });
 		host.selectFolder.mockResolvedValueOnce('file:///C:/Users/tester/My%20Documents');
 		const backup = new EdaAutomaticInventoryBackup(host);

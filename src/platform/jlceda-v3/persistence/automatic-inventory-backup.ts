@@ -1,5 +1,6 @@
 import type { InventoryDocument } from '../../../features/inventory/domain/inventory-document';
 import type { InventoryRepository } from '../../../features/inventory/ports/inventory-repository';
+import { parse as parseUri } from 'uri-js';
 import { cloneInventoryDocument } from '../../../features/inventory/domain/inventory-document';
 
 export const AUTOMATIC_BACKUP_SETTINGS_KEY = 'inventory.v1.auto-backup.settings';
@@ -325,7 +326,10 @@ function normalizeBackupFolderPath(folderPath: string): string {
 }
 
 function hasControlCharacter(value: string): boolean {
-	return [...value].some(character => character.charCodeAt(0) < 32);
+	return [...value].some((character) => {
+		const code = character.charCodeAt(0);
+		return code < 32 || (code >= 127 && code <= 159);
+	});
 }
 
 function appendFileSystemPath(folderPath: string, name: string): string {
@@ -343,33 +347,36 @@ function appendFileSystemPath(folderPath: string, name: string): string {
 }
 
 function fileUrlToNativePath(value: string): string {
-	let url: URL;
+	let uri: ReturnType<typeof parseUri>;
 	try {
-		url = new URL(value);
+		uri = parseUri(value);
 	}
 	catch {
 		throw new InvalidAutomaticBackupFolderError('EDA returned a malformed file URL for the backup folder.');
 	}
 	if (
-		url.protocol !== 'file:'
-		|| url.username
-		|| url.password
-		|| url.port
-		|| url.search
-		|| url.hash
-		|| /%(?:2f|5c)/i.test(url.pathname)
+		uri.error
+		|| uri.scheme !== 'file'
+		|| uri.userinfo !== undefined
+		|| uri.port !== undefined
+		|| uri.query !== undefined
+		|| uri.fragment !== undefined
+		|| uri.path === undefined
+		|| hasControlCharacter(value)
+		|| value.includes('\\')
+		|| /%(?:2f|5c)/i.test(uri.path)
 	) {
 		throw new InvalidAutomaticBackupFolderError('EDA returned an unusable file URL for the backup folder.');
 	}
 	let pathname: string;
 	try {
-		pathname = decodeURIComponent(url.pathname);
+		pathname = decodeURIComponent(uri.path);
 	}
 	catch {
 		throw new InvalidAutomaticBackupFolderError('EDA returned a malformed file URL for the backup folder.');
 	}
-	if (url.hostname && url.hostname.toLowerCase() !== 'localhost') {
-		return `\\\\${url.hostname}${pathname.replaceAll('/', '\\')}`;
+	if (uri.host && uri.host.toLowerCase() !== 'localhost') {
+		return `\\\\${uri.host}${pathname.replaceAll('/', '\\')}`;
 	}
 	if (/^\/[A-Z]:\//i.test(pathname)) {
 		return pathname.slice(1).replaceAll('/', '\\');

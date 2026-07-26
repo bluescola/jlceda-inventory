@@ -1,6 +1,7 @@
 import type { DesignStockIdentity } from '../../design-stock-check/domain/design-stock-check';
 import type { DesignDocumentKind } from '../../design-stock-check/ports/design-component-reader';
 import { normalizeInventoryText, normalizeLcscPartNumber } from '../../inventory/domain/inventory-item';
+import { isSafeHttpUrl } from '../../inventory/domain/inventory-metadata';
 
 export const MAX_PROJECT_SNAPSHOT_DEMANDS = 10_000;
 export const MAX_PROJECT_DEMAND_DESIGNATORS = 10_000;
@@ -101,7 +102,7 @@ export function sanitizePurchaseRecord(record: PurchaseRecord): PurchaseRecord {
 	const unitPriceMinor = nonNegativeSafeInteger(record.unitPriceMinor, 'Purchase unit price');
 	assertSafeProduct(quantity, unitPriceMinor, 'Purchase amount');
 	const productUrl = optionalText(record.productUrl, 'Purchase product URL', 2_048);
-	if (productUrl && !isHttpUrl(productUrl)) {
+	if (productUrl && !isSafeHttpUrl(productUrl)) {
 		throw new TypeError('Purchase product URL must use HTTP or HTTPS without embedded credentials.');
 	}
 	if (!Array.isArray(record.projectSnapshotIds)
@@ -220,16 +221,6 @@ function nonNegativeSafeInteger(value: number, label: string): number {
 function assertSafeProduct(left: number, right: number, label: string): void {
 	if (!Number.isSafeInteger(left * right)) {
 		throw new RangeError(`${label} exceeds the safe integer range.`);
-	}
-}
-
-function isHttpUrl(value: string): boolean {
-	try {
-		const url = new URL(value);
-		return (url.protocol === 'http:' || url.protocol === 'https:') && !url.username && !url.password;
-	}
-	catch {
-		return false;
 	}
 }
 

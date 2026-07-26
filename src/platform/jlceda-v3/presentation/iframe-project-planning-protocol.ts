@@ -2,6 +2,7 @@ import type { DesignStockCheckStatus } from '../../../features/design-stock-chec
 import type { DesignDocumentKind } from '../../../features/design-stock-check/ports/design-component-reader';
 import type { ProjectPlanningIntent, ProjectPlanningOperationResult, ProjectPlanningPanelInput, ProjectPlanningPanelSnapshot, ProjectPlanningViewState } from './project-planning-panel';
 import { MAX_INVENTORY_DOCUMENT_PROJECT_DEMAND_LINES, MAX_INVENTORY_DOCUMENT_PROJECT_SNAPSHOTS, MAX_INVENTORY_DOCUMENT_PURCHASE_RECORDS } from '../../../features/inventory/application/inventory-document-limits';
+import { isSafeHttpUrl } from '../../../features/inventory/domain/inventory-metadata';
 import { summarizePurchaseCosts } from '../../../features/project-planning/application/purchase-cost';
 
 export const PROJECT_PLANNING_IFRAME_ID = 'jlceda-project-planning-panel';
@@ -725,13 +726,7 @@ function isHttpUrl(value: unknown): value is string {
 	if (typeof value !== 'string' || value.length > 2_048) {
 		return false;
 	}
-	try {
-		const url = new URL(value);
-		return url.protocol === 'http:' || url.protocol === 'https:';
-	}
-	catch {
-		return false;
-	}
+	return isSafeHttpUrl(value.trim());
 }
 
 function isTimestamp(value: unknown): value is string {
