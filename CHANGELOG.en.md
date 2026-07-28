@@ -4,6 +4,30 @@
 
 # Changelog
 
+## 0.5.21 - 2026-07-28
+
+- Further address the marketplace-stage "image upload error" by changing README image references from `./images/...` to the `images/...` form verified by published extensions, preventing incorrect relative-path handling during server-side image transfer.
+- Reduce the feature preview set to three static PNGs covering the inventory overview, BOM mapping, and stock check. Other features retain their text descriptions, reducing the number of server-side uploads and content checks.
+- Extend the review regression with the marketplace README image-path constraint and advance the upload-retry version to `0.5.21`.
+
+## 0.5.20 - 2026-07-28
+
+- After reviewing the official publishing guide and audit history from a published extension, confirm that `images.banner` is optional and may be rejected when stretched by the store; this release does not configure a standalone banner.
+- Restore six packaged README screenshots covering the inventory overview, component creation, BOM mapping, stock check, BOM differences, and procurement suggestions so the marketplace details page can present a stable feature preview.
+- Exclude five screenshots containing example order numbers, project UUIDs, timestamps, or batch fingerprints. All retained images are project-owned and contain no personal data; advance the resubmission version to `0.5.20`.
+
+## 0.5.19 - 2026-07-28
+
+- Further reduce the image-review surface after the "uploaded image did not pass review" response: production `.eext` archives now contain only the original logo referenced by `extension.json`, not feature screenshots.
+- Keep feature screenshots in the GitHub repository and use stable repository URLs from the README so screenshots containing fictional order numbers, batch fingerprints, UUIDs, and timestamps are not scanned as uploaded extension-package images.
+- Extend the review regression to lock the screenshot exclusion rule and remote README image URLs, and advance the resubmission version to `0.5.19`.
+
+## 0.5.18 - 2026-07-28
+
+- Replace the logo with an original component-inventory cabinet mark that is clearly distinct from the SDK default. The production PNG is now 1024 x 1024, square, fully opaque, and remains within the review size limit.
+- Exclude the repository-only SVG logo source from review packages so only the PNG referenced by `extension.json` is distributed, and document the logo copyright and license.
+- Re-audit required manifest fields, categories, entry point, README, changelog, and privacy boundaries, and advance the resubmission version to `0.5.18`.
+
 ## 0.5.17 - 2026-07-26
 
 - Remove the Retry EDA model matching action for unbound overview rows together with the `retry-model` and `attach-model` protocol intents, candidate-confirmation tokens, fuzzy-search adapter, and dedicated service mutation. Retired protocol requests are now rejected.

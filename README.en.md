@@ -4,7 +4,7 @@
 
 A personal component inventory extension for JLCEDA Professional V3. It treats LCSC marketplace product information and JLCEDA device models as independent states and helps prioritize existing stock during schematic design.
 
-The current release is `0.5.17`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
+The current release is `0.5.21`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
 
 ## Feature Preview
 
@@ -101,7 +101,7 @@ GitHub can host source code, CI builds, and release files, but it cannot act dir
 
 ## Installation
 
-1. Download `jlceda-inventory_v0.5.17.eext` from a Release or CI artifact.
+1. Download `jlceda-inventory_v0.5.21.eext` from a Release or CI artifact.
 2. Open JLCEDA Professional V3.
 3. Go to "Advanced -> Extension Manager -> Import" and select the `.eext` file.
 4. Enable the extension under Installed; enable "Show in top menu" to keep its entry in the top row.
