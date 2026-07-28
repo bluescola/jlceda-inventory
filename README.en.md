@@ -12,67 +12,51 @@ The screenshots below are organized by independent workflow. Each one is rendere
 
 ### Inventory Overview, Categories, and Placement
 
-![Categorized inventory overview with search, categories, stock status, EDA model status, and bulk actions](./images/inventory-overview-demo.png)
+![Categorized inventory overview with search, categories, stock status, EDA model status, and bulk actions](images/inventory-overview-demo.png)
 
 The overview brings together search, two-level categories, stock and replenishment filters, EDA model status, structured locations, bulk moves, and placement for in-stock parts with an available model.
 
 ### C-Number Creation and Full Editing
 
-![Create a C-number component with EDA model lookup, identity, quantity, category, location, and notes](./images/inventory-create-demo.png)
-
 C-number and custom creation share a multi-field form. Full editing maintains the same identity and inventory metadata and re-runs EDA model lookup when the C number changes.
 
 ### BOM Header Detection and Column Mapping
 
-![Worksheet selection, header candidates, semantic column mapping, and raw rows for two BOM files](./images/bom-mapping-demo.png)
+![Worksheet selection, header candidates, semantic column mapping, and raw rows for two BOM files](images/bom-mapping-demo.png)
 
 CSV, TXT, XLS, and XLSX files go through worksheet and header detection before users confirm semantic columns such as C number, quantity, designators, package, and DNP. Version comparison maps both files independently.
 
 ### Design and BOM Stock Check
 
-![Stock-check results aggregated by board quantity with sufficient, insufficient, review, missing, and unmatched states](./images/stock-check-demo.png)
+![Stock-check results aggregated by board quantity with sufficient, insufficient, review, missing, and unmatched states](images/stock-check-demo.png)
 
 Aggregate demand from the current schematic, PCB, or an external BOM, calculate total requirements and shortages by board quantity, and export a shortage CSV.
 
 ### BOM Version Differences
 
-![Added, removed, quantity, and identity changes between two BOMs with unmatched-row review](./images/bom-diff-demo.png)
-
 The report separates additions, removals, quantity changes, and identity changes. Rows without a C number and parsing issues have a dedicated review area, and results can be filtered or exported as CSV.
 
 ### Atomic BOM Stock-Out
-
-![Atomic BOM stock-out preview with source, board quantity, batch fingerprint, before and after stock, and commit notice](./images/bom-stock-out-demo.png)
 
 The preview shows every planned deduction and blocking issue before confirmation. A confirmed operation is committed as one atomic batch so partial stock-out cannot occur.
 
 ### Stock-Out Batches and Reversal Ledger
 
-![BOM stock-out batches and inventory ledger with active and reversed batches, quantity deltas, and reversal action](./images/inventory-transactions-demo.png)
-
 The batch view shows source, fingerprints, state, and totals, while the ledger links each deduction and reversal. An active batch can be reversed as a whole.
 
 ### Batch Order Import Preview
-
-![Preview of multiple LCSC order files with order number, row count, quantity, duplicate status, and projected changes](./images/order-import-demo.png)
 
 Before writing, the preview reports each order number, total quantity, duplicate reason, and projected add/merge/skip counts. Only ready files proceed to model matching and persistence.
 
 ### Project Demand Snapshots
 
-![Project demand snapshots with board quantity, demand rows, document type, capture time, and project document identifiers](./images/project-snapshots-demo.png)
-
 Capture demand from the current design or an external file, maintain board quantity per snapshot, and confirm differences before resynchronization.
 
 ### Project Procurement Suggestions
 
-![Cross-project procurement suggestions with suggested quantity, validation state, total demand, current stock, and source snapshots](./images/project-procurement-demo.png)
-
 Aggregate multiple demand snapshots, distinguish sufficient, insufficient, stocktake, and missing states, and export suggested purchase quantities.
 
 ### Purchase Records and Cost Summary
-
-![Purchase records with component, quantity, unit and total cost, date, platform, order number, and source snapshots](./images/project-purchases-demo.png)
 
 Purchase records remain separate from inventory writes, aggregate quantity and cost by currency, and retain order, platform, date, and source-snapshot context.
 
@@ -186,3 +170,5 @@ This project was not implemented by the repository maintainer alone. The main im
 ## License
 
 [Apache-2.0](LICENSE)
+
+The extension logo and feature screenshots are project-owned assets released with the source under Apache-2.0. Review packages use the original 1024 x 1024 PNG logo and include three core README screenshots without order numbers, UUIDs, timestamps, or batch fingerprints. README image paths use the marketplace-proven `images/...` form. They neither use the default JLCEDA SDK logo nor configure an `images.banner` asset that the store may stretch.

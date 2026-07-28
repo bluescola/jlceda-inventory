@@ -12,6 +12,15 @@
 /node_modules/
 /src/
 /tests/
+/images/bom-stock-out-demo.png
+/images/bom-diff-demo.png
+/images/inventory-create-demo.png
+/images/inventory-transactions-demo.png
+/images/order-import-demo.png
+/images/project-procurement-demo.png
+/images/project-purchases-demo.png
+/images/project-snapshots-demo.png
+/images/logo-source.svg
 /.editorconfig
 /.gitattributes
 /.gitignore

@@ -1,11 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Component inventory icon">
-  <rect width="512" height="512" rx="72" fill="#18211d"/>
-  <path d="M86 142h340v246a38 38 0 0 1-38 38H124a38 38 0 0 1-38-38z" fill="#f4f7f5"/>
-  <path d="M70 116a30 30 0 0 1 30-30h312a30 30 0 0 1 30 30v66H70z" fill="#27ae60"/>
-  <rect x="118" y="222" width="276" height="136" rx="18" fill="#18211d"/>
-  <rect x="190" y="246" width="132" height="88" rx="14" fill="#f4c542"/>
-  <g stroke="#f4c542" stroke-width="14" stroke-linecap="round">
-    <path d="M146 246h30M146 290h30M146 334h30M336 246h30M336 290h30M336 334h30"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="Electronic component inventory cabinet icon">
+  <title>JLCEDA Inventory</title>
+  <desc>An original icon showing electronic components organized in an inventory cabinet.</desc>
+  <rect width="1024" height="1024" fill="#17362e"/>
+  <rect x="156" y="148" width="712" height="728" rx="76" fill="#f7faf8"/>
+  <path d="M232 148h560a76 76 0 0 1 76 76v116H156V224a76 76 0 0 1 76-76z" fill="#20a66a"/>
+  <rect x="230" y="294" width="564" height="494" rx="42" fill="#e8f0ec" stroke="#17362e" stroke-width="20"/>
+  <path d="M512 304v474M240 541h544" fill="none" stroke="#17362e" stroke-width="20"/>
+  <g fill="#f5c84b">
+    <rect x="319" y="385" width="114" height="76" rx="18"/>
+    <rect x="600" y="376" width="106" height="30" rx="15"/>
+    <rect x="600" y="426" width="106" height="30" rx="15"/>
+    <rect x="600" y="476" width="106" height="30" rx="15"/>
+    <rect x="330" y="619" width="92" height="92" rx="18"/>
+    <circle cx="632" cy="665" r="54"/>
   </g>
-  <circle cx="349" cy="126" r="18" fill="#f4c542"/>
+  <g fill="none" stroke="#f5c84b" stroke-width="18" stroke-linecap="round">
+    <path d="M286 387h20M286 423h20M286 459h20M446 387h20M446 423h20M446 459h20"/>
+  </g>
+  <g fill="none" stroke="#17362e" stroke-width="18" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M330 593v-22M376 593v-22M422 593v-22M330 737v-22M376 737v-22M422 737v-22"/>
+    <path d="m602 665 22 22 44-48"/>
+  </g>
+  <circle cx="744" cy="244" r="28" fill="#f5c84b"/>
+  <rect x="246" y="219" width="276" height="50" rx="25" fill="#f7faf8"/>
 </svg>
