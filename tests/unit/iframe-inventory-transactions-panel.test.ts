@@ -152,7 +152,7 @@ describe('iframe inventory transactions protocol', () => {
 		const request = await requestFrom(host);
 
 		expect(request.labels).toMatchObject({
-			title: 'BOM 出库批次与撤销流水',
+			title: 'BOM 出库与撤销记录',
 			undoBatch: '撤销批次',
 			statusReversed: '已撤销',
 		});

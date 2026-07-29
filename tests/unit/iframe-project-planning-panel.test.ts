@@ -217,7 +217,7 @@ describe('iframe project planning protocol', () => {
 		expect(request).toMatchObject({
 			labels: {
 				title: '项目需求与采购',
-				tabSnapshots: '需求快照',
+				tabSnapshots: '设计需求记录',
 				addPurchase: '登记采购',
 			},
 			snapshots: [{

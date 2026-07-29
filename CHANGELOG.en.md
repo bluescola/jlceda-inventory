@@ -1,8 +1,16 @@
 <p align="right">
-  <a href="./CHANGELOG.md">简体中文</a> | <strong>English</strong>
+  <a href="https://github.com/bluescola/jlceda-inventory/blob/main/CHANGELOG.md">简体中文</a> | <strong>English</strong>
 </p>
 
 # Changelog
+
+## Unreleased
+
+- Rewrite the Chinese and English READMEs as user-facing guides, covering every actual entry point, outcome, and key limitation across intake, inventory management, design integration, BOM workflows, project procurement, and backup recovery.
+- Simplify developer-oriented wording in the Chinese and English UI and public guides: describe browser versus installed-app use directly, and explain batch success rules, BOM column choices, reversal records, backup compatibility, data versions, saved design demand, and price entry in terms of user-visible outcomes.
+- Move build commands, directory structure, platform API boundaries, and release checks into dedicated Chinese and English development guides so the public README no longer mixes in version-validation history or internal implementation details.
+- Fix Markdown links that the extension marketplace cannot resolve: keep packaged feature images as `images/...`, while language switches, development documents, contributor information, and the license now use accessible absolute GitHub links.
+- Correct the project-demand description: snapshots can currently capture only the active schematic or PCB, not an external file. Expand the manifest summary to cover order and package-code intake, BOM workflows, procurement, and backups.
 
 ## 0.5.21 - 2026-07-28
 

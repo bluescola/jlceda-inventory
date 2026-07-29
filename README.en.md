@@ -1,174 +1,281 @@
-[简体中文](./README.md) | **English**
+[简体中文](https://github.com/bluescola/jlceda-inventory/blob/main/README.md) | **English**
 
 # JLCEDA Personal Component Inventory
 
-A personal component inventory extension for JLCEDA Professional V3. It treats LCSC marketplace product information and JLCEDA device models as independent states and helps prioritize existing stock during schematic design.
+## What This Extension Is For
 
-The current release is `0.5.21`. The extension does not require the developer to operate a custom server. Source code, CI, and release files are hosted on GitHub, while inventory is written to JLCEDA extension user configuration.
+JLCEDA Personal Component Inventory helps you record which components you have, where they are stored, and how many remain. It can check stock before design work or production, receive purchased parts, record BOM deductions, plan purchases, and back up your data.
 
-## Feature Preview
+The current release is `0.5.21`. It works with JLCEDA Professional V3, supports Simplified Chinese and English, and does not require you to run a server or database.
 
-The screenshots below are organized by independent workflow. Each one is rendered from the extension's actual IFrame with fictional demonstration data; no real inventory, order, or project data is included. Search, filters, categories, bulk actions, pagination, and other controls within the same workspace are covered together.
+In this guide, a **bill of materials (BOM)** is a list of the components and quantities needed by a design. An **EDA component model** is the library data JLCEDA needs to place a part in a schematic; it is not the same as an LCSC marketplace product.
 
-### Inventory Overview, Categories, and Placement
+## Important Notes
 
-![Categorized inventory overview with search, categories, stock status, EDA model status, and bulk actions](images/inventory-overview-demo.png)
+- **The browser version and installed JLCEDA application keep separate inventories.** They do not synchronize automatically, even with the same account. Transfer data with a JSON backup file.
+- **Placing a component does not reduce stock.** Use **Stock out by BOM batch** or edit the quantity yourself when parts are actually issued for production.
+- **A scanner is optional.** You can paste the complete package QR-code text, and the extension does not access a camera.
+- **Automatic backup is available only in the installed JLCEDA application.** The browser version still supports manual backup and restore.
+- **The extension cannot read your LCSC account orders directly.** Export an order-detail file from LCSC and import that file.
+- Workflows that change inventory show a preview or confirmation first. Cancelling them leaves inventory unchanged.
 
-The overview brings together search, two-level categories, stock and replenishment filters, EDA model status, structured locations, bulk moves, and placement for in-stock parts with an available model.
+## Quick Start
 
-### C-Number Creation and Full Editing
+1. Install and enable the `.eext` package in JLCEDA Professional V3.
+2. Open **Component Inventory -> Inventory overview**.
+3. Add parts by LCSC part number, as custom components, from an LCSC order file, or from a package QR code.
+4. Add categories and storage locations, then set minimum stock levels for parts that need low-stock reminders.
+5. Check the current design or an external BOM before production.
+6. Create a manual JSON backup. In the installed JLCEDA application, also configure **Automatic backup settings**.
 
-C-number and custom creation share a multi-field form. Full editing maintains the same identity and inventory metadata and re-runs EDA model lookup when the C number changes.
+## Where Commands Are Available
 
-### BOM Header Detection and Column Mapping
+All commands are under **Component Inventory**. The available design commands depend on the current JLCEDA workspace.
 
-![Worksheet selection, header candidates, semantic column mapping, and raw rows for two BOM files](images/bom-mapping-demo.png)
+| Workspace | Design commands |
+| --- | --- |
+| Home | Inventory management, import, BOM, project planning, backup, and diagnostic commands. Open a schematic or PCB before saving its project demand. |
+| Schematic | **Place from inventory**, **Locate selected component in inventory**, **Check current design stock**, and project-demand capture. |
+| PCB | **Locate selected component in inventory**, **Check current design stock**, and project-demand capture. Placement is not available here. |
 
-CSV, TXT, XLS, and XLSX files go through worksheet and header detection before users confirm semantic columns such as C number, quantity, designators, package, and DNP. Version comparison maps both files independently.
+## Adding Components and Receiving Stock
 
-### Design and BOM Stock Check
+### Add by LCSC Part Number
 
-![Stock-check results aggregated by board quantity with sufficient, insufficient, review, missing, and unmatched states](images/stock-check-demo.png)
+Entry: **Component Inventory -> Add by LCSC part number**.
 
-Aggregate demand from the current schematic, PCB, or an external BOM, calculate total requirements and shortages by board quantity, and export a shortage CSV.
+Enter a C number such as `C25804`. The extension searches the JLCEDA built-in component library for a model that can be placed in a schematic. If one is found, its name, package, and related information are offered as suggestions; you decide which values to use.
 
-### BOM Version Differences
+If no model is found, the inventory record can still be saved, counted, categorized, and checked against a BOM. It simply cannot be placed directly in a schematic. The extension can open the official LCSC product page for manual verification, but it does not scrape marketplace pages.
 
-The report separates additions, removals, quantity changes, and identity changes. Rows without a C number and parsing issues have a dedicated review area, and results can be filtered or exported as CSV.
+### Add a Custom Component
 
-### Atomic BOM Stock-Out
+Entry: **Component Inventory -> Add custom component**.
 
-The preview shows every planned deduction and blocking issue before confirmation. A confirmed operation is committed as one atomic batch so partial stock-out cannot occur.
+Use this for a part without a C number or when you want to maintain the information yourself. The name is required and the C number is optional. You can record a known count, an estimated count, or a quantity that has not yet been counted.
 
-### Stock-Out Batches and Reversal Ledger
+Filling in the form does not change inventory. Stock changes only after you choose **Save to inventory** or confirm that the new record should be merged with an existing one.
 
-The batch view shows source, fingerprints, state, and totals, while the ledger links each deduction and reversal. An active batch can be reversed as a whole.
+### Import an LCSC Order File
 
-### Batch Order Import Preview
+Entry: **Component Inventory -> Import order file**.
 
-Before writing, the preview reports each order number, total quantity, duplicate reason, and projected add/merge/skip counts. Only ready files proceed to model matching and persistence.
+First export an order-detail `.xls` or `.xlsx` file from LCSC. Compatible CSV and JSON files are also accepted. The extension cannot download orders directly from your LCSC account.
 
-### Project Demand Snapshots
+Before saving anything, the preview shows the detected order number, quantities, possible duplicates, and how many records will be added, merged, or skipped. You also choose whether existing quantities should be increased, replaced by the order quantity, or left unchanged. The extension checks the order number and whether the same file was imported before.
 
-Capture demand from the current design or an external file, maintain board quantity per snapshot, and confirm differences before resynchronization.
+Only confirmed files continue to component matching and inventory saving. The accepted CSV and JSON fields are listed in the [order import format](https://github.com/bluescola/jlceda-inventory/blob/main/docs/order-import-format.md).
 
-### Project Procurement Suggestions
+### Import a Package Code
 
-Aggregate multiple demand snapshots, distinguish sufficient, insufficient, stocktake, and missing states, and export suggested purchase quantities.
+Entry: **Component Inventory -> Import package code**.
 
-### Purchase Records and Cost Summary
+A scanner is optional. You can use either method:
 
-Purchase records remain separate from inventory writes, aggregate quantity and cost by currency, and retain order, platform, date, and source-snapshot context.
+1. Scan with a 2D QR-code scanner in HID keyboard mode, meaning the scanner enters text in the same way as a keyboard.
+2. Read the QR code with another tool and paste the complete text into the input box.
 
-Folder and file pickers, Save As and overwrite confirmation, restore confirmation, and marketplace navigation are native JLCEDA surfaces. QR parsing confirmation, EDA category import, and substitute-link confirmation also have no persistent standalone workspace. The README therefore does not fabricate screenshots of those host-owned surfaces; their behavior and validation boundaries are documented below and in the linked documents.
+The extension identifies the C number, manufacturer part number, and quantity, then asks you to check the original text and detected values. Confirming this step opens a form with the detected information already filled in. Inventory changes only after you save or merge that form.
 
-## Implemented
+A one-dimensional barcode scanner may not read the package QR code. The extension does not access a computer or phone camera.
 
-- Run read-only stock checks against the current schematic, PCB, or an external BOM. Aggregate demand by board quantity, distinguish exact shortages from review/stocktake/unmatched states, and export shortage CSV files.
-- Read CSV, TXT, XLS, and XLSX BOMs with text-encoding, worksheet, and header detection; map columns explicitly and compare two BOM versions for additions, removals, quantity changes, and identity changes. Stock check and stock-out accept exactly one BOM, version diff accepts exactly two, and each file is limited to 10 MiB, 32 worksheets, 128 columns per worksheet, and 10,000 data rows.
-- Store per-item minimum stock and favorites, filter/export replenishment and stocktake work, configure overview columns, and maintain datasheet URLs plus cabinet/box/row/column locations.
-- Read one or more selected SCH/PCB components, show all matching inventory records together with an unmatched count, deduplicate inventory by ID, and scroll-highlight a single result. Partial matches show a dedicated warning above the table with the missing designators and component identities. Locating again while the overview remains visible, minimized, or hidden replaces its old content with the new selection. Existing inventory records do not offer EDA model rematching because the current host's public capabilities cannot provide it reliably within the inventory identity boundary. Version `0.5.17` removes the legacy keyword-candidate and cross-C binding entry and protocol; users are not expected to test this unsupported capability. Existing exact model lookup while creating an item or fully editing its C number remains available. Package QR input previews raw content plus parsed `pc`, `pm`, and `qty` before opening the existing inventory draft workflow.
-- Commit an explicitly confirmed BOM stock-out atomically, block semantic duplicates, allow a confirmed identical demand as a new production run, and reverse a complete batch with linked entries. This ledger covers only BOM stock-out and reversal, not ordinary edits or order receipt.
-- Persist project/document demand snapshots, show diffs before resynchronization, generate board-aware procurement suggestions, and store purchase/cost records separately. Demand snapshots and purchase records place Actions immediately after Name, while procurement suggestions prioritize the suggested quantity and status ahead of technical identifiers and source details. Purchase dates are stored as calendar-only `YYYY-MM-DD` values, with legacy timestamps normalized on read. User-confirmed substitute relationships are ranked for manual review only and never drive automatic matching or deduction.
-- On Desktop, initial automatic-backup setup opens the native folder picker directly. After a folder is selected, the extension creates `jlceda-inventory-latest.json` and enables backup only after a successful test write. Existing saved paths remain usable and a new folder can be selected at any time; cancelling the picker leaves settings unchanged. Restore strictly validates schema, budgets, references, and ledger closure, stages a recovery point, and reinstates the previous recovery point if the primary restore fails. Version `0.5.5` passed the specified Desktop cases for folder selection, permission rejection, disable/re-enable, consecutive saves, external restore, and recovery-snapshot restore. Version `0.5.16` additionally passed folder/restore compatibility without the global `URL`, Desktop restart persistence, primary-save isolation when either the backup path disappears or external-interaction permission is disabled at runtime, backup after create, favorite, full-edit, merge, delete, and order-import writes, and pre-write rejection of malformed JSON, future schemas, and invalid backup fields. Web now also passed explicit fallback, manual-save, and file-restore checks. Web and Desktop do not automatically share primary inventory and require explicit JSON transfer. Non-destructive P0 host validation is complete; destructive disk and primary-storage failures remain covered by automated injection, and two-device behavior is tracked separately as P1.
+## Managing Inventory
 
-- Query the JLCEDA system library first when adding a C-number part. Use model information immediately on a match, and open the LCSC marketplace for confirmation only when lookup is missing or fails.
-- Keep marketplace products and EDA models independent; products without an EDA model can still be saved and managed as inventory.
-- Use the same one-screen IFrame form for both LCSC-number and custom components, entering identity, quantity, category, location, and notes without a chain of native single-field dialogs.
-- Show the inventory package and EDA model footprint prominently in the list and details alongside separate marketplace-evidence and EDA-model statuses; existing unbound records do not offer model rematching.
-- Add custom components with exact, estimated, or unknown quantities.
-- Keep the inventory overview mounted as the parent window with a host-native collapsed minimize control whose full-width title bar remains available for manual restore. Moving the window, clicking the EDA workspace, switching applications, minimizing, restoring, or maximizing never hides it implicitly. Place hides it explicitly and restores it on failure; only explicit close ends the session.
-- Require a non-negative integer quantity, show a specific warning for negative values, mark zero as depleted automatically, and allow depleted state changes in the same form.
-- Re-query the EDA library after a C-number change and present the new model properties as per-field suggestions without forcing them over user-maintained inventory data.
-- Compare an existing record with the pending edit before merging duplicate identities, and use record revisions to avoid overwriting newer cross-computer changes.
-- Reload the latest record before deletion and require an irreversible confirmation showing its name, part number, and quantity.
-- Import catalog-backed inventory parts into the personal library, detect existing personal-library devices idempotently, and verify copied devices by reading them back instead of treating Favorites or an unverified API return as success.
-- Manage large inventories from a categorized overview whose primary search covers LCSC and supplier IDs, manufacturer part numbers, names, manufacturers, and packages. The sidebar separates system and two-level user categories; rows and selected groups can be dragged directly onto a category. Actions, number, stock, package, and EDA model follow the name, with lower-frequency fields placed later.
-- Explicitly and idempotently import the two-level category tree from a personal or Favorites library without moving inventory items automatically. When the full tree API is unavailable, fall back to categories already used by library devices and warn that empty categories may be omitted.
-- Rank exact search matches above prefixes and partial matches, then prefer in-stock items among equally relevant results. Search belongs to the overview itself and is never presented as a menu command or virtual component.
-- Open the categorized inventory overview from Place from inventory, search or browse its two-level categories, and attach any in-stock row with an available model to the pointer. The Place action hides the overview explicitly and inventory is not deducted automatically.
-- Batch-import LCSC order-detail `.xls`/`.xlsx` files from one multi-field window that sets the default state and duplicate strategy together, previews every file and expected inventory change, and reports parsing, model matching, and write progress. Order numbers and SHA-256 fingerprints prevent repeated imports while CSV/JSON remain supported. A selection is limited to 100 files, each at most 10 MiB; workbooks are limited to 32 worksheets, 128 columns per worksheet, and 10,000 data rows.
-- Use Save inventory backup as to create an independent versioned JSON snapshot. Destination and overwrite confirmation are handled by the EDA system save dialog rather than the fixed automatic-backup path.
-- Use Simplified Chinese or English menus and runtime messages.
+![Categorized inventory overview with search, categories, stock status, placeable-model status, and bulk actions](images/inventory-overview-demo.png)
 
-## Synchronization and Server
+The **Inventory overview** is the main workspace for daily inventory work.
 
-This extension has no custom backend and does not require users to configure a database. Inventory is stored with `SYS_Storage.setExtensionUserConfig()`.
+- Search by C number, manufacturer part number, name, manufacturer, or package.
+- Filter by category, stock level, low-stock state, favorite state, and whether a placeable EDA model is available.
+- Sort results, choose the number of rows per page, and select which columns are visible.
+- Create up to two levels of categories and record cabinet, box, row, and column storage locations.
+- View details, edit a record, mark it as depleted, move one or many records, or delete after confirmation.
+- Set the quantity you want to keep on hand as the minimum stock level, then filter or export parts that need replenishment or a physical count.
 
-Official documentation describes this API as "extension user configuration," but does not guarantee cross-computer synchronization, capacity, propagation delay, or concurrent-conflict behavior. A same-account, same-computer `0.5.16` check confirmed that Web and Desktop maintain independent primary inventories with no automatic propagation, while the same JSON can be transferred manually without content loss. Two-Desktop-device behavior remains pending, so this storage must not be presented as a cloud database. Follow the [cross-device validation checklist](docs/cross-device-validation.md); configure automatic backup on Desktop, save snapshots regularly on Web, and transfer data explicitly through JSON.
+Deleting a category does not delete its components; those records move to **Unclassified**. Importing categories from a JLCEDA personal or Favorites library creates missing category names but does not move inventory records. If JLCEDA cannot provide empty categories, only categories already used by library components can be imported.
 
-GitHub can host source code, CI builds, and release files, but it cannot act directly as the runtime database.
+The personal library means JLCEDA's own personal component library, not this extension's inventory list. An inventory record with a usable EDA model can be copied there without changing its inventory quantity.
 
-## Installation
+If a new or edited C number or manufacturer part number appears to describe the same part as an existing record, the extension shows both records before you decide whether to merge them.
 
-1. Download `jlceda-inventory_v0.5.21.eext` from a Release or CI artifact.
+## Working with a Design
+
+### Locate Selected Components
+
+Entry in schematic and PCB workspaces: **Component Inventory -> Locate selected component in inventory**.
+
+Select one or more components on the canvas first. The inventory overview then shows every matching record and separately lists design components that could not be linked to inventory. This command only finds records; it does not change stock.
+
+### Check Current Design Stock
+
+Entry in schematic and PCB workspaces: **Component Inventory -> Check current design stock**.
+
+Enter the number of boards you plan to produce. The extension adds together the quantity needed for each part and reports which parts are sufficient, insufficient, missing from inventory, not counted yet, or unable to be matched. You can export the shortages as CSV.
+
+![Stock-check results by board quantity, including sufficient, insufficient, review, missing, and unmatched parts](images/stock-check-demo.png)
+
+This check does not deduct stock or create an order. If the current design cannot be read, use **Check external BOM stock** instead.
+
+### Place from Inventory
+
+Entry in a schematic: **Component Inventory -> Place from inventory**.
+
+Choose an in-stock record with a usable EDA model. The component follows the mouse pointer until you click the schematic canvas to place it. Placement does not reduce inventory because the extension cannot confirm whether you completed the placement.
+
+## BOM and Production
+
+BOM files can be CSV, TXT, XLS, or XLSX. The extension identifies the worksheet and heading row, then lets you choose which column contains the C number, quantity, designator such as `R1` or `C3`, package, and do-not-place flag (DNP).
+
+![BOM worksheet selection, heading row, column assignments, and source-data preview](images/bom-mapping-demo.png)
+
+### Check an External BOM
+
+Entry: **Component Inventory -> Check external BOM stock**.
+
+Choose one BOM, confirm what each column means, and enter the number of boards. The result shows required quantities, current stock, and shortages and can be exported as CSV. Inventory is not changed.
+
+### Compare BOM Versions
+
+Entry: **Component Inventory -> Compare BOM versions**.
+
+Choose two BOM files as the original and new versions. The report shows added or removed parts, quantity changes, and changes to C numbers, manufacturer part numbers, or other identifying information. Content that cannot be recognized is listed separately for review. The report can be filtered or exported and does not change inventory.
+
+### Stock Out by BOM
+
+Entry: **Component Inventory -> Stock out by BOM batch**.
+
+Choose one BOM and review every planned deduction before confirming. The preview explains any missing record, unclear quantity, shortage, or unmatched part that prevents stock-out.
+
+The batch either succeeds completely or changes nothing. Every part must match an inventory record with a known, sufficient quantity. If any part fails a check, no inventory is deducted. When the same parts and quantities are submitted again, the extension warns about a possible duplicate; continue only when this really is a new production batch.
+
+### Stock-Out and Reversal History
+
+Entry: **Component Inventory -> BOM stock-out and reversal history**.
+
+This page lists BOM stock-out batches and their reversal records. A batch that has not been reversed can be reversed as a whole, which restores every deducted quantity and saves a corresponding reversal record. A reversed batch cannot be reversed again.
+
+This history covers BOM stock-out and reversal only. It is not a complete history of normal edits, package-code receipt, or order import.
+
+## Projects, Procurement, and Substitutes
+
+### Saved Design Demand
+
+Entry: **Component Inventory -> Project demand and procurement**. Open a schematic or PCB before choosing **Capture current design**.
+
+The extension can save the parts and quantities required by the current design as a design demand record. Give each record a name and production board quantity. When the same design is saved again, you see the differences before replacing the old demand.
+
+This workflow can save only the current schematic or PCB, not an external BOM. If the schematic and PCB describe the same physical board, saving both records counts the demand twice, so keep only the one you intend to use.
+
+### Procurement Suggestions
+
+The extension combines all saved demand records, compares the total with inventory, and calculates a suggested purchase quantity. It separates parts that are sufficient, insufficient, not counted yet, or missing from inventory. Suggestions can be exported as CSV.
+
+### Purchase Records
+
+Purchase records let you manually enter the quantity, platform, order number, date, currency, and price. Enter prices in the smallest currency unit: for `CNY`, enter `125` for CNY 1.25. Totals are grouped by currency.
+
+Saving a purchase record does not increase inventory. When the parts arrive, receive them through normal add, order import, or package-code import.
+
+### Substitute Parts
+
+Entry: **Component Inventory -> Manage substitute links**.
+
+Choose the part you originally intended to use, then manually confirm which inventory parts can replace it. The entered demand quantity only helps rank candidates by available stock. Substitute links never change BOM matching, stock checks, deductions, or quantities automatically.
+
+## Backup, Transfer, and Restore
+
+Inventory is stored in data space that JLCEDA provides to the extension; no separate database is required. JLCEDA in a browser and the installed JLCEDA application each keep their own inventory. Changes do not synchronize automatically.
+
+### Manual Backup
+
+Entry: **Component Inventory -> Save inventory backup as**.
+
+This saves a complete `.json` backup file through the JLCEDA save dialog. It works both in the browser and in the installed application and does not change current inventory.
+
+### Automatic Backup in the Installed Application
+
+Entry: **Component Inventory -> Automatic backup settings**.
+
+Automatic backup works only in the installed JLCEDA application and requires the **Allow external interaction** permission so the extension can choose a folder and write a backup file. After you choose a folder, the extension tests it before enabling backup and then keeps `jlceda-inventory-latest.json` updated.
+
+Only the latest backup is kept. If the folder or permission becomes unavailable, current inventory remains saved and a backup warning is shown.
+
+### Restore or Transfer Inventory
+
+Entry: **Component Inventory -> Restore inventory backup**.
+
+Choose an external `.json` backup or the old inventory copy that the extension automatically saved before the previous restore. The extension checks that the file is compatible, complete, and within the supported size, then shows how many records it contains before asking for confirmation.
+
+Restore replaces all current inventory data; it does not add or merge only a few records. Inventory, categories, order-import history, BOM stock-out and reversal history, project demand, purchases, and substitute links are all replaced. Save a new backup first if you may need the current data later.
+
+To move data between the browser and installed application:
+
+1. Choose **Save inventory backup as** where the current inventory is stored.
+2. Move the `.json` file to the other environment.
+3. Choose **Restore inventory backup**, review the summary, and confirm replacement.
+
+## Diagnostics and Version
+
+- **View diagnostic logs** shows recent operation states and error categories without changing inventory.
+- **Export diagnostic logs** saves a diagnostic JSON file that can be attached to a problem report.
+- **About inventory extension** shows the installed version and basic information.
+
+## File Limits
+
+| Input | Supported formats | Limits |
+| --- | --- | --- |
+| Order import | XLS, XLSX, CSV, JSON | Up to 100 files, 10 MB per file, and 50 MB in total |
+| External BOM check or stock-out | CSV, TXT, XLS, XLSX | 1 file, up to 10 MB |
+| BOM version comparison | CSV, TXT, XLS, XLSX | Exactly 2 files, up to 10 MB each |
+| Package QR text | Pasted text or text entered by a HID keyboard scanner | Up to 4,096 characters; requires a valid C number and a positive whole-number quantity |
+| Inventory backup | JSON | Up to 10 MB and 10,000 inventory records; restore replaces all current data |
+
+One Excel file can contain up to 32 worksheets, 128 columns per worksheet, and 10,000 data rows per worksheet. Oversized files are rejected before import starts.
+
+## Frequently Asked Questions
+
+### Do I need a scanner for package-code receiving?
+
+No. Paste the complete QR-code text, or use a 2D scanner that enters text like a keyboard. The extension does not access a camera.
+
+### Why can I save a C-number part but not place it?
+
+The LCSC product can be saved as inventory even when JLCEDA has no usable EDA model for it. Placement additionally requires an available model, positive stock, and an open schematic.
+
+### Does placing or checking a component reduce stock?
+
+No. Stock changes only after an explicit save, edit, delete, merge, order import, BOM stock-out, reversal, or complete restore.
+
+### Does inventory synchronize between the browser and installed application?
+
+No. They keep separate inventories. Use **Save inventory backup as** and **Restore inventory backup** to transfer a `.json` file.
+
+### Can the extension download my LCSC orders automatically?
+
+No. Export an order-detail file from LCSC and import it through **Import order file**.
+
+### Can restore merge only a few records?
+
+No. Restore replaces all current data with the backup. Use normal add, merge, or order import when you only want to receive more stock.
+
+### What should I do when a command is unavailable or fails?
+
+Confirm that you are in the correct Home, schematic, or PCB workspace and that any requested file or **Allow external interaction** permission is enabled. Then use **View diagnostic logs** or **Export diagnostic logs** when reporting the problem.
+
+## Installation and Updates
+
+1. Get `jlceda-inventory_v0.5.21.eext` from the JLCEDA extension marketplace or a GitHub Release.
 2. Open JLCEDA Professional V3.
-3. Go to "Advanced -> Extension Manager -> Import" and select the `.eext` file.
-4. Enable the extension under Installed; enable "Show in top menu" to keep its entry in the top row.
-5. Open Inventory overview or another command from the grouped "Component Inventory" top menu. The extension does not register a separate top-level shortcut.
+3. Go to **Advanced -> Extension Manager -> Import** and select the `.eext` file.
+4. Enable the extension under **Installed**. Enable **Show in top menu** if you want the menu kept in the top row.
+5. Open **Component Inventory -> Inventory overview**.
 
-## Development
+Before updating, create a manual JSON backup. Import the new `.eext` package as an update without deleting the existing extension data.
 
-Node.js `>=20.17.0` is required.
+## Developer Documentation and License
 
-```powershell
-npm ci
-npm run lint
-npm run typecheck
-npm test
-npm run build
-```
+Build commands, architecture, data-safety rules, platform adaptation, testing, and the release checklist are maintained in the [developer guide](https://github.com/bluescola/jlceda-inventory/blob/main/docs/development-guide.md).
 
-The packaged extension is written to `build/dist/`.
+Contributions and implementation credits are listed in [CONTRIBUTORS.md](https://github.com/bluescola/jlceda-inventory/blob/main/CONTRIBUTORS.md).
 
-## Directory Structure
-
-```text
-src/
-  features/                 Pure business features with no direct eda access
-    inventory/              Inventory model, rules, and repository port
-    component-catalog/      EDA device-model lookup port
-    marketplace-catalog/    Marketplace evidence and navigation port
-    order-import/           LCSC Excel and CSV/JSON order parsing
-    common-library/         Common-library copy port
-    inventory-search/       Inventory search and result ranking
-    design-stock-check/     Current-design demand and stock checks
-    bom-analysis/           Generic BOM reading, mapping, and diffs
-    package-scan/           JLC/LCSC package-code parsing
-    project-planning/       Project snapshots, procurement, and cost
-  platform/jlceda-v3/       JLCEDA Professional V3 API adapters
-    bootstrap/              Dependency composition
-    eda/                    Library, file, i18n, and placement adapters
-    persistence/            Official user-configuration storage
-    iframe/                 Isolated browser-form source
-    presentation/           IFrame adapter, native dialogs, and diagnostics
-  index.ts                  Single official extension entry point
-build/                      Official SDK packaging baseline
-config/                     Official SDK esbuild baseline
-locales/                    Runtime and extension.json translations
-tests/                      Pure business unit tests
-docs/                       Project documentation and roadmap
-```
-
-See the [documentation index](docs/README.md), Chinese [0.5.17 new-feature test methods](docs/手动测试指南.md), [architecture](docs/architecture.md), [reliability roadmap](docs/roadmap.md), and [order import format](docs/order-import-format.md).
-
-## Current Limitations
-
-- JLCEDA currently provides no public marketplace-order API, so orders are imported from LCSC Excel order-detail exports or user-prepared CSV/JSON files.
-- The supported LCSC product API requires approved credentials, request signing, and IP authorization, while marketplace pages do not allow cross-origin reads from extensions. The no-server build therefore opens the official marketplace for user confirmation only when EDA-model lookup is missing or fails; it does not scrape pages or claim automatic marketplace retrieval.
-- `LIB_Device`, `LIB_Device.copy()`, library-category reads, file selection, and pointer placement are official BETA APIs. They are isolated in the platform layer and still require validation in both Web and Desktop clients; when the full classification tree is unavailable, import can only discover categories used by devices.
-- SCH/PCB component reads, selected-component reads, direct path writes, and the new operational IFrames also depend on official BETA APIs. Automated checks cover capability detection, fallback, protocols, and native-close races, but cannot replace host validation in Web and Desktop.
-- Project demand currently accumulates each snapshot independently and cannot identify a schematic and PCB that represent the same physical board. Keeping both snapshots will double-count demand and affect procurement suggestions, so one must currently be removed or omitted.
-- The unified create form and inventory overview use the official IFrame, extension user-configuration, and timer APIs. Requests, operations, and responses are session-scoped and temporary data is removed on completion. Because the IFrame API remains BETA, startup failures are reported explicitly instead of silently switching to a different sequential-input workflow; both Web and Desktop clients still require testing before release.
-- Successful pointer placement only means a component was attached to the pointer, not that the user completed placement, so inventory is not deducted automatically.
-- `SYS_Storage` has no host-level atomic CAS. The extension rejects stale writes within one runtime instance but cannot promise strong consistency across simultaneous extension runtimes or devices.
-
-## Contributors
-
-This project was not implemented by the repository maintainer alone. The main implementation work was completed collaboratively with **OpenAI Codex** under the maintainer's requirements, decisions, and acceptance. See [CONTRIBUTORS.md](CONTRIBUTORS.md) for details.
-
-## License
-
-[Apache-2.0](LICENSE)
-
-The extension logo and feature screenshots are project-owned assets released with the source under Apache-2.0. Review packages use the original 1024 x 1024 PNG logo and include three core README screenshots without order numbers, UUIDs, timestamps, or batch fingerprints. README image paths use the marketplace-proven `images/...` form. They neither use the default JLCEDA SDK logo nor configure an `images.banner` asset that the store may stretch.
+The source code, original extension logo, and demonstration screenshots are released under the [Apache License 2.0](https://github.com/bluescola/jlceda-inventory/blob/main/LICENSE). The three screenshots use fictional demonstration data.

@@ -21,6 +21,17 @@ describe('runtime locale files', () => {
 		expect(readMessages('en')['inventoryItem.supplierId']).toBe('Supplier ID');
 	});
 
+	it('keeps user-facing runtime wording free of unexplained implementation terms', () => {
+		const chinese = Object.values(readMessages('zh-Hans')).join('\n');
+		const english = Object.values(readMessages('en')).join('\n');
+		for (const term of ['桌面客户端', '结构化仓位', '身份未匹配', '列映射', '原子写入', '反向流水', '源 schema', 'revision', '最小货币单位']) {
+			expect(chinese).not.toContain(term);
+		}
+		for (const term of ['desktop client', 'structured location', 'identity unmatched', 'column mapping', 'atomic write', 'reversal ledger', 'source schema', 'current revision', 'minor units']) {
+			expect(english.toLowerCase()).not.toContain(term);
+		}
+	});
+
 	it('defines every literal translation key used by inventory presentation adapters', () => {
 		const sources = [
 			'src/platform/jlceda-v3/presentation/iframe-inventory-item-panel.ts',
@@ -81,6 +92,7 @@ describe('runtime locale files', () => {
 		expect([...sourceTexts].filter(text => !(text in chinese))).toEqual([]);
 		expect([...sourceTexts].filter(text => !(text in english))).toEqual([]);
 		expect(english['关于库存扩展']).toBe('About inventory extension');
+		expect(english['BOM 出库与撤销记录']).toBe('BOM stock-out and reversal history');
 	});
 
 	it('uses current editor context names and distinct grouped menu ids', () => {
