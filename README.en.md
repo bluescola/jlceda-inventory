@@ -6,7 +6,7 @@
 
 JLCEDA Personal Component Inventory helps you record which components you have, where they are stored, and how many remain. It can check stock before design work or production, receive purchased parts, record BOM deductions, plan purchases, and back up your data.
 
-The current release is `0.5.21`. It works with JLCEDA Professional V3, supports Simplified Chinese and English, and does not require you to run a server or database.
+The current release is `0.5.22`. It works with JLCEDA Professional V3, supports Simplified Chinese and English, and does not require you to run a server or database.
 
 In this guide, a **bill of materials (BOM)** is a list of the components and quantities needed by a design. An **EDA component model** is the library data JLCEDA needs to place a part in a schematic; it is not the same as an LCSC marketplace product.
 
@@ -264,7 +264,7 @@ Confirm that you are in the correct Home, schematic, or PCB workspace and that a
 
 ## Installation and Updates
 
-1. Get `jlceda-inventory_v0.5.21.eext` from the JLCEDA extension marketplace or a GitHub Release.
+1. Get `jlceda-inventory_v0.5.22.eext` from the JLCEDA extension marketplace or a GitHub Release.
 2. Open JLCEDA Professional V3.
 3. Go to **Advanced -> Extension Manager -> Import** and select the `.eext` file.
 4. Enable the extension under **Installed**. Enable **Show in top menu** if you want the menu kept in the top row.

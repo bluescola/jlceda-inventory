@@ -4,7 +4,7 @@
 
 # Changelog
 
-## Unreleased
+## 0.5.22 - 2026-07-29
 
 - Rewrite the Chinese and English READMEs as user-facing guides, covering every actual entry point, outcome, and key limitation across intake, inventory management, design integration, BOM workflows, project procurement, and backup recovery.
 - Simplify developer-oriented wording in the Chinese and English UI and public guides: describe browser versus installed-app use directly, and explain batch success rules, BOM column choices, reversal records, backup compatibility, data versions, saved design demand, and price entry in terms of user-visible outcomes.

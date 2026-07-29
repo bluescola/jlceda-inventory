@@ -60,7 +60,7 @@ Generated root `dist/` and `iframe/` files must not be edited manually. Change t
 The expected release artifact is named like:
 
 ```text
-build/dist/jlceda-inventory_v0.5.21.eext
+build/dist/jlceda-inventory_v0.5.22.eext
 ```
 
 Inspect the final archive rather than assuming that a successful bundle contains every required manifest, documentation, image, locale, IFrame, and entry file.
